@@ -8,6 +8,8 @@
 !*.parallel
 !*.Rmd
 !*.png
+!*MD
+!*tsv
 *checkpoint*
 *work*
 *ATACflow_tutorial_preprocessing_out*
@@ -16,3 +18,4 @@
 *ATACflow*
 *.ipynb_checkpoints*
 *.nextflow*
+
