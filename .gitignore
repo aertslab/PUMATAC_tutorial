@@ -8,7 +8,7 @@
 !*.parallel
 !*.Rmd
 !*.png
-!*MD
+!README.md
 !*tsv
 *checkpoint*
 *work*
