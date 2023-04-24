@@ -652,10 +652,12 @@ def plot_saturation_fragments(
     n_reads,
     n_cells,
     percentage_toplot,
+    svg_output_path,
+    png_output_path,
     plot_current_saturation=True,
     x_axis="mean_reads_per_barcode",
     y_axis="median_uniq_frag_per_bc",
-    function=MM
+    function=MM,
 ):
 
     fig, ax = plt.subplots(figsize=(6, 4))
@@ -762,7 +764,8 @@ def plot_saturation_fragments(
     title_str = f"{sample}\n{n_cells} cells, {round(n_reads/1000000)}M reads\nCurrently at {int(curr_y_coef)} {y_axis} with {int(curr_x_coef)} kRPC\nFor {int(percentage_toplot*100)}% saturation: {int(x_coef*n_cells/1000)}M reads needed"
     ax.set_title(title_str)
 
-    plt.savefig(f"plots_qc/{sample}_{y_axis}_saturation.png", dpi=300)
+    plt.savefig(png_output_path, dpi=300)
+    plt.savefig(svg_output_path, dpi=300)
     plt.show()
 
     plt.close()
@@ -784,6 +787,8 @@ def plot_saturation_duplication(
     n_reads,
     n_cells,
     percentage_toplot,
+    png_output_path,
+    svg_output_path,
     function=MM_duplication,
     plot_current_saturation=True,
     x_axis="mean_reads_per_barcode",
@@ -896,7 +901,8 @@ def plot_saturation_duplication(
     title_str = f"{sample}\n{n_cells} cells, {round(n_reads/1000000)}M reads\nCurrently at {int(curr_y_coef*100)}% duplication rate with {int(curr_x_coef)} kRPC\nFor {int(percentage_toplot*100)}% duplication rate, {int(x_coef*n_cells/1000)}M reads needed"
     ax.set_title(title_str)
 
-    plt.savefig(f"plots_qc/{sample}_{y_axis}_saturation.png", dpi=300)
+    plt.savefig(png_output_path, dpi=300)
+    plt.savefig(svg_output_path, dpi=300)
     plt.show()
 
     plt.close()
@@ -1227,6 +1233,8 @@ def plot_all_qc(
     sample_order,
     tech_order,
     ylim_dict,
+    svg_output_path,
+    png_output_path,
     individual_barplot_width=0.5,
     individual_plot_row_height=4,
 ):
@@ -1518,14 +1526,8 @@ def plot_all_qc(
 
     # plt.rcParams["font.weight"] = "bold"
     plt.tight_layout()
-    # plt.savefig(f"plts_scrap/fixedcells__boxplots_cellvars.png", dpi=600, facecolor="white")
-    # plt.savefig(f"plts_scrap/fixedcells__boxplots_cellvars.svg", dpi=600, facecolor="white")
+    plt.savefig(png_output_path, dpi=600, facecolor="white")
+    plt.savefig(svg_output_path, dpi=600, facecolor="white")
 
-    # plt.savefig(
-    #     f"plts_scrap/fixedcells__boxplots_cellvars_small.png", dpi=300, facecolor="white"
-    # )
-    # plt.savefig(
-    #     f"plts_scrap/fixedcells__boxplots_cellvars_small.svg", dpi=300, facecolor="white"
-    # )
     plt.show()
     plt.close()
