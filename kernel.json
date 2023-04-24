@@ -1,0 +1,15 @@
+{
+    "argv": [
+     "singularity",
+     "exec",
+     "-B",
+     "/staging,/lustre1,/data,/vsc-hard-mounts,/scratch,/scratch/leuven/330/vsc33042/tmp/:/tmp,/local_scratch",
+     "/lustre1/project/stg_00002/lcb/fderop/data/20230411_ATACflow_tutorial/PUMATAC_dependencies/jupyter_kernels/20230419_pycistopic.sif",
+     "ipython",
+     "kernel",
+     "-f",
+     "{connection_file}"
+    ],
+    "display_name": "20230419_pycistopic.sif",
+    "language": "python"
+}

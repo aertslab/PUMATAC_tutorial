@@ -10,6 +10,8 @@
 !*.png
 !README.md
 !*tsv
+!kernel.json
+!kernel_template.json
 *checkpoint*
 *work*
 *ATACflow_tutorial_preprocessing_out*
