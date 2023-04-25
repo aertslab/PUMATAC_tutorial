@@ -7,7 +7,7 @@
 !*.R
 !*.parallel
 !*.Rmd
-!*.png
+*.png
 !README.md
 !*tsv
 !kernel.json
