@@ -1,64 +1,25 @@
-import pycisTopic
-import glob
 import os
-import pybiomart as pbm
-import pandas as pd
-import pickle
+import glob
+import pprint as pp
+import re
+import gzip
+
+import pycisTopic
 from pycisTopic.qc import *
-from IPython.display import Image, display
-import matplotlib.pyplot as plt
+import pickle
+import pybiomart as pbm
+from scipy.optimize import curve_fit
+import scipy
+
 import numpy as np
+import pandas as pd
+import polars as pl
+
+import matplotlib.pyplot as plt
+import matplotlib.ticker as mtick
+from matplotlib.gridspec import GridSpec
 import seaborn as sns
 import palettable
-import pprint as pp
-import gzip
-import pandas as pd
-import numpy as np
-import os
-from scipy.optimize import curve_fit
-import matplotlib.pylab as plt
-import bisect
-import random
-from collections import Counter
-from collections.abc import Sequence
-import glob
-import pickle
-import polars as pl
-import scipy
-import gzip
-import pandas as pd
-import numpy as np
-import os
-from scipy.optimize import curve_fit
-import matplotlib.pylab as plt
-import bisect
-import random
-from collections import Counter
-from collections.abc import Sequence
-import glob
-import pickle
-import polars as pl
-import scipy
-import matplotlib.ticker as mtick
-import pandas as pd
-import polars as pl
-import glob
-import numpy as np
-import os
-import pickle
-
-import pandas as pd
-import polars as pl
-import glob
-import numpy as np
-import os
-import pickle
-from matplotlib.gridspec import GridSpec
-
-
-### Define sequencer
-import gzip
-import re
 
 # dictionary of instrument id regex: [platform(s)]
 InstrumentIDs = {
@@ -1143,14 +1104,14 @@ def scrape_mapping_stats(samples, samples_tech_dict, pipeline, output_dir, verbo
     if pipeline == "PUMATAC":
         directory = f"{output_dir}/data/reports/barcode/"
         for sample in df_stats.index:
-            file = directory + sample + "_____R1.corrected.bc_stats.log"
+            file = glob.glob(f"{directory}/*{sample}*.corrected.bc_stats.log")[0]
             if os.path.exists(file):
                 # print(f"{sample}: {file}")
                 df = pd.read_csv(
                     file, sep="\t\t|\t", engine="python", index_col=0, header=None
                 )
                 # print(df)
-                tech = sample_tech_dict[sample]
+                tech = samples_tech_dict[sample]
                 if tech == "biorad":
                     nreads = df.loc["nbr_reads:", 1]
                     nbarcodes_total = df.loc[
