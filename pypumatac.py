@@ -243,8 +243,8 @@ def list_files(startpath, maxlevel):
             subindent = " " * 4 * (level + 1)
             for f in dirs:
                 print("{}{}".format(subindent, f))
-                
-                
+
+
 ### Download genome dict
 pbm_genome_name_dict = {
     "hg38": "hsapiens_gene_ensembl",
@@ -299,9 +299,9 @@ def download_genome_annotation(inverse_genome_dict):
             annotation.to_csv(f"{genome}_annotation.tsv", sep="\t")
 
             annotation_dict[genome] = annotation
-            
+
         return annotation_dict
-    
+
 ### Otsu filtering
 def histogram(array, nbins=100):
     """
@@ -547,21 +547,6 @@ def read_bc_and_counts_from_fragments_file(fragments_bed_filename: str) -> pl.Da
     Polars dataframe with cell barcode and count per fragment (column 4 and 5 of BED file).
     """
 
-    bed_column_names = (
-        "Chromosome",
-        "Start",
-        "End",
-        "Name",
-        "Score",
-        "Strand",
-        "ThickStart",
-        "ThickEnd",
-        "ItemRGB",
-        "BlockCount",
-        "BlockSizes",
-        "BlockStarts",
-    )
-
     # Set the correct open function depending if the fragments BED file is gzip compressed or not.
     open_fn = gzip.open if fragments_bed_filename.endswith(".gz") else open
 
@@ -589,12 +574,12 @@ def read_bc_and_counts_from_fragments_file(fragments_bed_filename: str) -> pl.Da
             f"{nbr_columns} columns."
         )
 
-    # Read cell barcode (column 4) and counts (column 5) per fragemnt from fragments BED file.
+    # Read cell barcode (column 4) and counts (column 5) per fragment from fragments BED file.
     fragments_df = pl.read_csv(
         fragments_bed_filename,
         has_header=False,
         skip_rows=skip_rows,
-        sep="\t",
+        separator="\t",
         use_pyarrow=False,
         n_threads=6,
         columns=["column_1", "column_2", "column_3", "column_4", "column_5"],
@@ -757,7 +742,7 @@ def sub_sample_fragments(
             " fragments with good barcodes."
         )
         fragments_sampled_for_good_bc_df = selected_barcodes.join(
-            fragments_all_df.sample(frac=sampling_fraction),
+            fragments_all_df.sample(fraction=sampling_fraction),
             left_on="CellBarcode",
             right_on="CellBarcode",
             how="left",
@@ -940,7 +925,7 @@ def plot_saturation_fragments(
     # ax.set_xscale("log")
 
     ax.set_ylabel(y_axis)
-    title_str = f"{sample}\n{n_cells} cells, {round(n_reads/1000000)}M reads\nCurrently at {int(curr_y_coef)} {y_axis} with {int(curr_x_coef)} kRPC\nFor {int(percentage_toplot*100)}% saturation: {int(x_coef*n_cells/1000)}M reads needed"
+    title_str = f"{sample}\n{n_cells} cells, {round(n_reads/1000000)}M reads\nCurrently at {int(curr_y_coef)} {y_axis} with {int(curr_x_coef)} kRPC\nFor {int(percentage_toplot*100)}% saturation: {int(x_coef*n_cells/1000)}M reads needed\n"
     ax.set_title(title_str)
 
     plt.savefig(png_output_path, dpi=300, bbox_inches='tight')
@@ -1077,7 +1062,7 @@ def plot_saturation_duplication(
     # ax.set_xscale("log")
 
     ax.set_ylabel("Duplication rate (%)")
-    title_str = f"{sample}\n{n_cells} cells, {round(n_reads/1000000)}M reads\nCurrently at {int(curr_y_coef*100)}% duplication rate with {int(curr_x_coef)} kRPC\nFor {int(percentage_toplot*100)}% duplication rate, {int(x_coef*n_cells/1000)}M reads needed"
+    title_str = f"{sample}\n{n_cells} cells, {round(n_reads/1000000)}M reads\nCurrently at {int(curr_y_coef*100)}% duplication rate with {int(curr_x_coef)} kRPC\nFor {int(percentage_toplot*100)}% duplication rate, {int(x_coef*n_cells/1000)}M reads needed\n"
     ax.set_title(title_str)
 
     plt.savefig(png_output_path, dpi=300, bbox_inches='tight')
@@ -1086,7 +1071,7 @@ def plot_saturation_duplication(
 
     plt.close()
     print(title_str)
-    
+
 ### Parsing data
 def scrape_mapping_stats(samples, samples_tech_dict, pipeline, output_dir, verbose):
     df_stats = pd.DataFrame(index=pd.Index(samples))
@@ -1216,7 +1201,7 @@ def scrape_scstats(metadata_path_dict, selected_cells_path_dict, df_stats):
             selected_barcodes = pickle.load(f)
 
         df = df.loc[selected_barcodes]
-        df_median = df.median()
+        df_median = df.median(numeric_only=True)
         df_median.index = ["Median_" + x.lower() for x in df_median.index]
         df_median["total_nr_frag_in_selected_barcodes"] = sum(df["Total_nr_frag"])
         df_median["total_nr_unique_frag_in_selected_barcodes"] = sum(
