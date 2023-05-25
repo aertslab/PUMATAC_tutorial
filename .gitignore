@@ -20,4 +20,5 @@
 *ATACflow*
 *.ipynb_checkpoints*
 *.nextflow*
-
+*saturation_stats*
+*selected_barcodes*
