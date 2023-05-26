@@ -1160,9 +1160,9 @@ def scrape_mapping_stats(samples, samples_tech_dict, pipeline, output_dir, verbo
             elif verbose == True:
                 print(f"{file}")
 
-    elif pipeline == "cellranger-arc" or pipeline == "cellranger-atac":
+    elif pipeline == "cellranger-arc":
         stats_dict = {
-            x.split("/")[1]: x
+            x.split("/")[-3]: x
             for x in sorted(glob.glob(f"{output_dir}/*/outs/summary.csv"))
         }
 
@@ -1172,6 +1172,34 @@ def scrape_mapping_stats(samples, samples_tech_dict, pipeline, output_dir, verbo
                 percentage_correct_barcodes = df["ATAC Valid barcodes"][0] * 100
                 n_reads = df["ATAC Sequenced read pairs"][0]
                 percent_mapq30 = df["ATAC Confidently mapped read pairs"][0] * 100
+
+                if verbose == True:
+                    print(f"percentage_correct_barcodes: {percentage_correct_barcodes}")
+                    print(f"percent mapq30: {round(percent_mapq30, 2)}")
+                    print("-------------------------------------\n")
+
+                df_stats.loc[sample, "%_correct_barcodes"] = round(
+                    percentage_correct_barcodes, 2
+                )
+                df_stats.loc[sample, "n_reads"] = n_reads
+
+                df_stats.loc[sample, "%_mapq30"] = round(percent_mapq30, 2)
+
+            else:
+                print(f"{file} does not exist!")
+                
+    elif pipeline == "cellranger-atac":
+        stats_dict = {
+            x.split("/")[-3]: x
+            for x in sorted(glob.glob(f"{output_dir}/*/outs/summary.csv"))
+        }
+
+        for sample, filepath in stats_dict.items():
+            if os.path.exists(filepath):
+                df = pd.read_csv(filepath)
+                percentage_correct_barcodes = df["Valid barcodes"][0] * 100
+                n_reads = df["Sequenced read pairs"][0]
+                percent_mapq30 = df["Confidently mapped read pairs"][0] * 100
 
                 if verbose == True:
                     print(f"percentage_correct_barcodes: {percentage_correct_barcodes}")
