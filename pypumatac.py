@@ -235,14 +235,21 @@ def sequencer_detection_message(fastq_files):
 
 ### make tree view of files
 def list_files(startpath, maxlevel):
-    for root, dirs, files in os.walk(startpath):
+    for root, dirs, files in os.walk(startpath, followlinks=True):
+        # Exclude hidden directories and files
+        dirs[:] = [d for d in dirs if not d[0] == "."]
+        files = [f for f in files if not f[0] == "."]
+
         level = root.replace(startpath, "").count(os.sep)
-        if not level > maxlevel:
+        if level <= maxlevel:
             indent = " " * 4 * (level)
             print("{}{}/".format(indent, os.path.basename(root)))
-            subindent = " " * 4 * (level + 1)
-            for f in dirs:
-                print("{}{}".format(subindent, f))
+        if level == maxlevel:
+            dirs[
+                :
+            ] = (
+                []
+            )  # clear dir list at max level to prevent unnecessary directory traversal
 
 
 ### Download genome dict
@@ -263,17 +270,15 @@ pbm_host_dict = {
 def download_genome_annotation(inverse_genome_dict):
     annotation_dict = {}
     for genome in inverse_genome_dict.keys():
-        if os.path.exists(f"{genome}_annotation.tsv"):
-            print(f"Loading cached genome annotation {genome}_annotation.tsv")
-            annotation = pd.read_csv(
-                f"{genome}_annotation.tsv", sep="\t", header=0, index_col=0
-            )
-            annotation_dict[genome] = annotation
+        filename = f"{genome}_annotation.tsv"
+        if os.path.exists(filename):
+            print(f"Loading cached genome annotation {filename}")
+            annotation = pd.read_csv(filename, sep="\t", header=0, index_col=0)
         else:
             dataset = pbm.Dataset(
-                name=pbm_genome_name_dict[genome], host=pbm_host_dict[genome]
+                name=pbm_genome_name_dict.get(genome, 'default_value'), 
+                host=pbm_host_dict.get(genome, 'default_value')
             )
-
             annotation = dataset.query(
                 attributes=[
                     "chromosome_name",
@@ -285,22 +290,15 @@ def download_genome_annotation(inverse_genome_dict):
             )
             filter = annotation["Chromosome/scaffold name"].str.contains("CHR|GL|JH|MT")
             annotation = annotation[~filter]
-            annotation["Chromosome/scaffold name"] = annotation[
-                "Chromosome/scaffold name"
-            ].str.replace(r"(\b\S)", r"chr\1")
-            annotation.columns = [
-                "Chromosome",
-                "Start",
-                "Strand",
-                "Gene",
-                "Transcript_type",
-            ]
+            annotation["Chromosome/scaffold name"] = annotation["Chromosome/scaffold name"].str.replace(r"(\b\S)", r"chr\1")
+            annotation["Chromosome/scaffold name"] = "chr" + annotation["Chromosome/scaffold name"]
+            annotation.columns = ["Chromosome", "Start", "Strand", "Gene", "Transcript_type"]
             annotation = annotation[annotation.Transcript_type == "protein_coding"]
-            annotation.to_csv(f"{genome}_annotation.tsv", sep="\t")
+            annotation.to_csv(filename, sep="\t")
+            
+        annotation_dict[genome] = annotation
+    return annotation_dict
 
-            annotation_dict[genome] = annotation
-
-        return annotation_dict
 
 ### Otsu filtering
 def histogram(array, nbins=100):
@@ -359,10 +357,6 @@ def threshold_otsu(array, nbins=100, min_value=100):
     return threshold
 
 
-# def calc_kde(xy):
-#     return gaussian_kde(xy)(xy)
-
-
 def plot_frag_qc(
     x,
     y,
@@ -388,31 +382,17 @@ def plot_frag_qc(
     barcodes = x.index.values
 
     if density_overlay:
-        cores = 8
-
-        x_log = np.log(x)
-
-        # Split input array for KDE [log(x), y] array in
-        # equaly spaced parts (start_offset + n * nbr_cores).
-        kde_parts = [np.vstack([x_log[i::cores], y[i::cores]]) for i in range(cores)]
-
-        # Get nultiprocess context object to spawn processes.
-        # mp_ctx = mp.get_context("spawn")
-
-        # Calculate KDE in parallel.
-        with Pool(processes=cores) as pool:
-            results = pool.map(kde.calc_kde, kde_parts)
-
-        z = np.concatenate(results)
+        x_log = np.log(x + 1)
+        xy = np.vstack([x_log, y])
+        print(xy)
+        z = gaussian_kde(xy)(xy)
+        print(z)
 
         # now order x and y in the same way that z was ordered, otherwise random z value is assigned to barcode:
-        x_ordered = np.concatenate([x[i::cores] for i in range(cores)])
-        y_ordered = np.concatenate([y[i::cores] for i in range(cores)])
-
         idx = (
             z.argsort()
         )  # order based on z value so that highest value is plotted on top, and not hidden by lower values
-        x, y, z, barcodes = x_ordered[idx], y_ordered[idx], z[idx], barcodes[idx]
+        x, y, z, barcodes = x[idx], y[idx], z[idx], barcodes[idx]
     else:
         z = c
 
@@ -530,7 +510,6 @@ def plot_qc(
 
     fig.suptitle(title, x=0.5, y=0.95, fontsize=10)
     return bc_passing_filters, fig
-
 ### Saturation analysis
 def read_bc_and_counts_from_fragments_file(fragments_bed_filename: str) -> pl.DataFrame:
     """
@@ -796,7 +775,49 @@ def sub_sample_fragments(
 
     return stats_df
 
+# subsample a fragments file and return the subsampled fragments file
+# subsample a fragments file and return the subsampled fragments file
+def sub_sample_fragments_single(
+    fragments_df,
+    sampling_fraction=None,
+    out_file_path=None,
+):
+    if sampling_fraction > 1:
+        print("sampling fraction > 1, impossible, returning none")
 
+    elif sampling_fraction == 1:
+        print("sampling fraction = 1, returning full fragments file.")
+
+        if out_file_path:
+            fragments_df.write_csv(out_file_path, separator="\t", has_header=False)
+        else:
+            return fragments_df
+
+    elif sampling_fraction == 0.0:
+        print("sampling fraction = 0, returning none")
+        return None
+
+    else:
+        fragments_all_df = fragments_df.with_columns(
+            pl.col("FragmentCount").repeat_by(pl.col("FragmentCount"))
+        ).explode("FragmentCount")
+
+        # downsample
+        fragments_sampled_df = fragments_all_df.sample(fraction=sampling_fraction)
+
+        # re-group
+        fragments_sampled_df_contracted = fragments_sampled_df.groupby(
+            ["Chromosome", "Start", "End", "CellBarcode"]
+        ).agg([pl.count("FragmentCount").alias("FragmentCount")])
+
+        if out_file_path:
+            fragments_sampled_df_contracted.write_csv(
+                out_file_path, separator="\t", has_header=False
+            )
+
+        else:
+            return fragments_sampled_df_contracted
+    
 ### Plot duplication
 
 def MM(x, Vmax, Km):
@@ -1073,73 +1094,171 @@ def plot_saturation_duplication(
     print(title_str)
 
 ### Parsing data
-def scrape_mapping_stats(samples, samples_tech_dict, pipeline, output_dir, verbose):
-    df_stats = pd.DataFrame(index=pd.Index(samples))
-    tsv_list = sorted(glob.glob(f"selected_barcodes/*otsu.txt"))
-    cell_count_dict = {}
-    for tsv in tsv_list:
-        sample = tsv.split("/")[-1].split("_bc_passing_filters_otsu")[0]
-        # print(sample)
-        df = pd.read_csv(tsv, sep="\t", index_col=0)
-        cell_count_dict[sample] = len(df)
-        df_stats.loc[sample, "sample_id"] = sample
+def load_file(file_path, delimiter):
+    if os.path.exists(file_path):
+        return pd.read_csv(file_path, sep=delimiter, engine="python", index_col=0)
+    else:
+        print(f"{file_path} does not exist!")
+        return None
+def print_verbose_info(data):
+    print("-------------------------------------\n")
+    for key, value in data.items():
+        print(f"{key}: {value}")
+    print("-------------------------------------\n")
 
-        df_stats.loc[sample, "n_cells"] = len(df)
 
-    if pipeline == "PUMATAC":
-        directory = f"{output_dir}/data/reports/barcode/"
-        for sample in df_stats.index:
-            file = glob.glob(f"{directory}/*{sample}*.corrected.bc_stats.log")[0]
-            if os.path.exists(file):
-                # print(f"{sample}: {file}")
-                df = pd.read_csv(
-                    file, sep="\t\t|\t", engine="python", index_col=0, header=None
+def get_correct_barcodes(df, verbose):
+    nreads, percentage_correct_barcodes = calculate_barcode_metrics(df)
+
+    if verbose:
+        print_verbose_info(
+            {
+                "nreads": nreads,
+                "nbarcodes_total": nbarcodes_total,
+                "percentage_correct_barcodes": percentage_correct_barcodes,
+            }
+        )
+
+    return nreads, percentage_correct_barcodes
+
+
+def get_mapping_stats(df, verbose):
+    percent_mapq30 = (
+        df.loc["Reads mapped with MAPQ>30:"] / df.loc["raw total sequences:"] * 100
+    )
+    avg_insert = df.loc["insert size average:"]
+    avg_map_quality = df.loc["average quality:"]
+    r1_length = df.loc["maximum first fragment length:"]
+    r2_length = df.loc["maximum last fragment length:"]
+
+    if verbose:
+        print_verbose_info(
+            {
+                "read 1 length": int(r1_length),
+                "read 2 length": int(r2_length),
+                "average map quality": round(avg_map_quality, 2),
+                "percent mapq30": round(percent_mapq30, 2),
+                "insert size average": avg_insert,
+            }
+        )
+
+    return r1_length, r2_length, avg_insert, percent_mapq30, avg_map_quality
+
+
+def get_pipeline_stats(stats_dict, verbose):
+    for sample, filepath in stats_dict.items():
+        df = load_file(filepath, ",")
+        if df is not None:
+            percentage_correct_barcodes = df["ATAC Valid barcodes"][0] * 100
+            n_reads = df["ATAC Sequenced read pairs"][0]
+            percent_mapq30 = df["ATAC Confidently mapped read pairs"][0] * 100
+
+            if verbose:
+                print_verbose_info(
+                    {
+                        "percentage_correct_barcodes": percentage_correct_barcodes,
+                        "percent mapq30": round(percent_mapq30, 2),
+                    }
                 )
-                # print(df)
-                tech = samples_tech_dict[sample]
-                if tech == "biorad":
-                    nreads = df.loc["nbr_reads:", 1]
-                    nbarcodes_total = df.loc[
-                        "nbr_reads_with_bc1_bc2_bc3_correct_or_correctable", 1
-                    ]
-                    percentage_correct_barcodes = nbarcodes_total / nreads * 100
-                else:
-                    nreads = df.loc["nbr_reads:", 1]
-                    nbarcodes_total = df.loc["total_bc_found", 1]
-                    percentage_correct_barcodes = nbarcodes_total / nreads * 100
 
-                if verbose == True:
-                    print(f"nreads: {nreads}")
-                    print(f"nbarcodes_total: {nbarcodes_total}")
-                    print(f"percentage_correct_barcodes: {percentage_correct_barcodes}")
-                    print("-------------------------------------\n")
+            yield sample, percentage_correct_barcodes, n_reads, percent_mapq30
 
-                df_stats.loc[sample, "n_reads"] = int(nreads)
-                df_stats.loc[sample, "%_correct_barcodes"] = round(
-                    percentage_correct_barcodes, 2
-                )
-            else:
-                print(f"{file} does not exist!")
+            
+def collect_and_sum_barcode_stats(files):
+    print(f"loading barcode stats files: {files}")
+    df_total = pd.DataFrame()
+    for file in files:
+        df = pd.read_csv(file, sep="\t\t|\t", engine="python", index_col=0, header=None)
 
-        directory = f"{output_dir}/data/reports/mapping_stats/"
-        for sample in df_stats.index:
-            file = directory + sample + "_____R1.mapping_stats.tsv"
-            if os.path.exists(file):
-                print(f"{sample}: {file}")
-                df = pd.read_csv(file, sep="\t", engine="python", index_col=0, header=0)
-                if verbose == True:
-                    print(df.astype(int))
-                    print("\n")
+        if df_total.empty:
+            df_total = df.copy()
+        else:
+            df_total = pd.concat([df_total, df], axis=1)
+    
+    df_total['total'] = df_total.sum(axis=1)
+    return df_total
 
+def collect_and_sum_mapping_stats(files):
+    print(f"loading mapping stats files: {files}")
+    df_total = pd.DataFrame()
+    for file in files:
+        df = pd.read_csv(file, sep="\t\t|\t", engine="python", index_col=0, header=0)
+
+        if df_total.empty:
+            df_total = df.copy()
+        else:
+            df_total = pd.concat([df_total, df], axis=1)
+    
+    df_total['total'] = df_total.sum(axis=1)
+    return df_total
+
+def calculate_weighted_avg(file_list, value_col, weight_col):
+    """
+    Function to calculate the weighted average
+    """
+    df_list = []
+    for file in file_list:
+        df = load_file(file, "\t")
+        df_list.append(df)
+
+    # concatenate all dfs
+    df_all = pd.concat(df_list, axis=0)
+    # Convert values to float for computation
+    df_all[value_col] = df_all[value_col].astype(float)
+    df_all[weight_col] = df_all[weight_col].astype(float)
+    # calculate weighted average
+    return (df_all[value_col] * df_all[weight_col]).sum() / df_all[weight_col].sum()
+
+def get_weighted_averages(sample_name, dir="."):
+    # Find all files that contain the sample_name in the file name
+    files = glob.glob(os.path.join(dir, f"*{sample_name}*.tsv"))
+    # Value columns to be averaged
+    value_cols = ["r1_length", "r2_length", "avg_insert_size", "%_mapq30", "avg_map_quality"]
+    weighted_avgs = {}
+    for col in value_cols:
+        weighted_avgs[col] = calculate_weighted_avg(files, col, "raw total sequences")
+    return weighted_avgs
+
+def scrape_mapping_stats(fragments_path_dict, pipeline_dict, verbose):
+    df_stats = pd.DataFrame(index=pd.Index(fragments_path_dict.keys()))
+    for sample, pipeline in pipeline_dict.items():
+        df = load_file(f"selected_barcodes/{sample}_bc_passing_filters_otsu.txt", "\t")
+        if df is not None:
+            df_stats.loc[sample, "sample_id"] = sample
+            df_stats.loc[sample, "n_cells"] = len(df)
+        else:
+            print(f"selected_barcodes/{sample}_bc_passing_filters_otsu.txt does not exist!")
+
+        if pipeline == "PUMATAC":
+            # bc stats
+            files = glob.glob(f"{fragments_path_dict[sample].split('data/fragments/')[0]}data/reports/barcode/{sample}*.corrected.bc_stats.log")
+            df_total = collect_and_sum_barcode_stats(files)
+            if df is not None:
+                nreads = df_total.at["nbr_reads:", "total"]
+                try:
+                    nbarcodes_total = df_total.at["nbr_reads_with_bc1_bc2_bc3_correct_or_correctable", "total"]
+                except:
+                    nbarcodes_total = df_total.at["total_bc_found", "total"]
+                    
+                percentage_correct_barcodes = nbarcodes_total / nreads * 100
+                
+                df_stats.loc[sample, "n_reads"] = nreads
+                df_stats.loc[sample, "%_correct_barcodes"] = round(percentage_correct_barcodes, 2)
+                
+                
+            # mapping stats
+            files = glob.glob(f"{fragments_path_dict[sample].split('data/fragments/')[0]}data/reports/mapping_stats/{sample}*.mapping_stats.tsv")
+            df_total = collect_and_sum_mapping_stats(files)
+            if df_total is not None:              
                 percent_mapq30 = (
-                    df.loc["Reads mapped with MAPQ>30:"]
-                    / df.loc["raw total sequences:"]
+                    df_total.at["Reads mapped with MAPQ>30:", "total"]
+                    / df_total.at["raw total sequences:", "total"]
                     * 100
                 )
-                avg_insert = df.loc["insert size average:"]
-                avg_map_quality = df.loc["average quality:"]
-                r1_length = df.loc["maximum first fragment length:"]
-                r2_length = df.loc["maximum last fragment length:"]
+                avg_insert = df_total.at["insert size average:", "total"]
+                avg_map_quality = df_total.at["average quality:", "total"]
+                r1_length = df_total.at["maximum first fragment length:", "total"]
+                r2_length = df_total.at["maximum last fragment length:", "total"]
 
                 if verbose == True:
 
@@ -1153,48 +1272,13 @@ def scrape_mapping_stats(samples, samples_tech_dict, pipeline, output_dir, verbo
                 df_stats.loc[sample, "r1_length"] = int(r1_length)
                 df_stats.loc[sample, "r2_length"] = int(r2_length)
                 df_stats.loc[sample, "avg_insert_size"] = int(avg_insert)
-                df_stats.loc[sample, "%_mapq30"] = round(percent_mapq30.iloc[0], 2)
-                df_stats.loc[sample, "avg_map_quality"] = round(
-                    avg_map_quality.iloc[0], 2
-                )
-            elif verbose == True:
-                print(f"{file}")
-
-    elif pipeline == "cellranger-arc":
-        stats_dict = {
-            x.split("/")[-3]: x
-            for x in sorted(glob.glob(f"{output_dir}/*/outs/summary.csv"))
-        }
-
-        for sample, filepath in stats_dict.items():
-            if os.path.exists(filepath):
-                df = pd.read_csv(filepath)
-                percentage_correct_barcodes = df["ATAC Valid barcodes"][0] * 100
-                n_reads = df["ATAC Sequenced read pairs"][0]
-                percent_mapq30 = df["ATAC Confidently mapped read pairs"][0] * 100
-
-                if verbose == True:
-                    print(f"percentage_correct_barcodes: {percentage_correct_barcodes}")
-                    print(f"percent mapq30: {round(percent_mapq30, 2)}")
-                    print("-------------------------------------\n")
-
-                df_stats.loc[sample, "%_correct_barcodes"] = round(
-                    percentage_correct_barcodes, 2
-                )
-                df_stats.loc[sample, "n_reads"] = n_reads
-
                 df_stats.loc[sample, "%_mapq30"] = round(percent_mapq30, 2)
+                df_stats.loc[sample, "avg_map_quality"] = round(
+                    avg_map_quality, 2
+                )
 
-            else:
-                print(f"{file} does not exist!")
-                
-    elif pipeline == "cellranger-atac":
-        stats_dict = {
-            x.split("/")[-3]: x
-            for x in sorted(glob.glob(f"{output_dir}/*/outs/summary.csv"))
-        }
-
-        for sample, filepath in stats_dict.items():
+        elif pipeline == "cellranger-atac":
+            filepath = f"{'/'.join(fragments_path_dict[sample].split('/')[:-2])}/outs/summary.csv"
             if os.path.exists(filepath):
                 df = pd.read_csv(filepath)
                 percentage_correct_barcodes = df["Valid barcodes"][0] * 100
@@ -1214,13 +1298,42 @@ def scrape_mapping_stats(samples, samples_tech_dict, pipeline, output_dir, verbo
                 df_stats.loc[sample, "%_mapq30"] = round(percent_mapq30, 2)
 
             else:
-                print(f"{file} does not exist!")
+                print(f"{filepath} does not exist!")
+            
+        elif pipeline == "cellranger-arc":
+            filepath = f"{'/'.join(fragments_path_dict[sample].split('/')[:-2])}/outs/summary.csv"
+
+            if os.path.exists(filepath):
+                df = pd.read_csv(filepath)
+                percentage_correct_barcodes = df["ATAC Valid barcodes"][0] * 100
+                n_reads = df["ATAC Sequenced read pairs"][0]
+                percent_mapq30 = df["ATAC Confidently mapped read pairs"][0] * 100
+
+                if verbose == True:
+                    print(f"percentage_correct_barcodes: {percentage_correct_barcodes}")
+                    print(f"percent mapq30: {round(percent_mapq30, 2)}")
+                    print("-------------------------------------\n")
+
+                df_stats.loc[sample, "%_correct_barcodes"] = round(
+                    percentage_correct_barcodes, 2
+                )
+                df_stats.loc[sample, "n_reads"] = n_reads
+
+                df_stats.loc[sample, "%_mapq30"] = round(percent_mapq30, 2)
+
+            else:
+                print(f"{filepath} does not exist!")
 
     return df_stats
+
+
+import pandas as pd
+import pickle
 
 def scrape_scstats(metadata_path_dict, selected_cells_path_dict, df_stats):
     df_merged = pd.DataFrame()
     df_scstats_merged = pd.DataFrame()
+
     for sample in metadata_path_dict.keys():
         with open(metadata_path_dict[sample], "rb") as f:
             df = pickle.load(f)
@@ -1229,27 +1342,27 @@ def scrape_scstats(metadata_path_dict, selected_cells_path_dict, df_stats):
             selected_barcodes = pickle.load(f)
 
         df = df.loc[selected_barcodes]
-        df_median = df.median(numeric_only=True)
-        df_median.index = ["Median_" + x.lower() for x in df_median.index]
-        df_median["total_nr_frag_in_selected_barcodes"] = sum(df["Total_nr_frag"])
-        df_median["total_nr_unique_frag_in_selected_barcodes"] = sum(
-            df["Unique_nr_frag"]
-        )
-        df_median["total_nr_unique_frag_in_selected_barcodes_in_regions"] = sum(
-            df["Unique_nr_frag_in_regions"]
-        )
-        df_median["n_barcodes_merged"] = len(
-            [x for x in [x.split("__")[0] for x in df.index] if "_" in x]
-        )
-        df_median["frac_barcodes_merged"] = len(
-            [x for x in [x.split("__")[0] for x in df.index] if "_" in x]
-        ) / len(df)
-        df_merged = pd.concat([df_merged, df_median], axis=1)
-        df_scstats_merged = pd.concat([df_scstats_merged, df], axis=0)
 
-    df_merged.columns = metadata_path_dict.keys()
+        # Create a DataFrame from df_median
+        df_median = df.median(numeric_only=True).to_frame().T
 
-    df_merged = df_merged.T
+        # Add new fields to df_median
+        df_median.columns = ["Median_" + x.lower() for x in df_median.columns]
+        df_median = df_median.assign(
+            total_nr_frag_in_selected_barcodes=df["Total_nr_frag"].sum(),
+            total_nr_unique_frag_in_selected_barcodes=df["Unique_nr_frag"].sum(),
+            total_nr_unique_frag_in_selected_barcodes_in_regions=df["Unique_nr_frag_in_regions"].sum(),
+            n_barcodes_merged=len([x for x in df.index if "_" in x.split("__")[0]]),
+            frac_barcodes_merged=len([x for x in df.index if "_" in x.split("__")[0]]) / len(df)
+        )
+        
+        df_median["sample"] = sample  # Add sample name to df_median
+        df_merged = pd.concat([df_merged, df_median])
+        df_scstats_merged = pd.concat([df_scstats_merged, df])
+
+    df_merged.set_index('sample', inplace=True)  # Set 'sample' as index
+
+    # Select subset of columns
     df_merged = df_merged[
         [
             "Median_total_nr_frag",
@@ -1304,6 +1417,9 @@ def scrape_scstats(metadata_path_dict, selected_cells_path_dict, df_stats):
 
     df_stats = pd.concat([df_stats, df_merged], axis=1)
     return df_scstats_merged, df_stats
+
+
+
 
 ### Calculate losses
 def calculate_losses(df_stats, df_scstats_merged):
