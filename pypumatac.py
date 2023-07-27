@@ -593,6 +593,7 @@ sampling_fractions_default = [
 
 def sub_sample_fragments(
     fragments_df,
+    n_reads,
     min_uniq_frag=200,
     selected_barcodes=[],
     sampling_fractions=sampling_fractions_default,
@@ -770,6 +771,18 @@ def sub_sample_fragments(
         # Delete dataframe to free memory.
         del fragments_sampled_for_good_bc_df
 
+    # then add some extra stats
+    stats_df["total_reads"] = n_reads * stats_df.index
+
+    stats_df["mean_reads_per_barcode"] = (
+        stats_df["total_reads"] / stats_df["cell_barcode_count"]
+    )
+    stats_df["mean_reads_per_barcode"].fillna(0, inplace=True)
+    stats_df["duplication_rate"] = (
+        stats_df["total_frag_count"] - stats_df["total_unique_frag_count"]
+    ) / stats_df["total_frag_count"]
+    stats_df["duplication_rate"] = stats_df["duplication_rate"].fillna(0)
+        
     print(f'Saving statistics in "{stats_tsv_filename}".')
     stats_df.to_csv(stats_tsv_filename, sep="\t")
 
@@ -848,20 +861,12 @@ def plot_saturation_fragments(
     fig, ax = plt.subplots(figsize=(6, 4))
 
     stats_df = pd.read_csv(filepath, sep="\t", index_col=0)
-
-    stats_df["total_reads"] = n_reads * stats_df.index
-
-    stats_df["mean_reads_per_barcode"] = (
-        stats_df["total_reads"] / stats_df["cell_barcode_count"]
-    )
-    stats_df["mean_reads_per_barcode"].fillna(0, inplace=True)
-    stats_df["duplication_rate"] = (
-        stats_df["total_frag_count"] - stats_df["total_unique_frag_count"]
-    ) / stats_df["total_frag_count"]
-    stats_df["duplication_rate"] = stats_df["duplication_rate"].fillna(0)
-    # stats_df["duplication_rate"] = (stats_df["total_frag_count"] - stats_df["total_unique_frag_count"]/stats_df["total_frag_count"])
-    # select x/y data fro MM fit from subsampling stats
-    x_data = np.array(stats_df.loc[0:, x_axis]) / 10**3
+    if x_axis == "mean_reads_per_barcode":
+        x_data = np.array(stats_df.loc[0:, x_axis]) / 10**3
+    else:
+        x_data = np.array(stats_df.loc[0:, x_axis])
+        
+        
     y_data = np.array(stats_df.loc[0:, y_axis])
     # fit to MM function
 
@@ -884,7 +889,6 @@ def plot_saturation_fragments(
     ax.scatter(x=x_data, y=y_data, c="red", s=10)
 
     # mark curent saturation
-    curr_x_idx = np.where(y_fit >= max(y_data))[0][0]
     curr_x_coef = max(x_data)
     curr_y_coef = max(y_data)
     if plot_current_saturation == True:
@@ -982,19 +986,11 @@ def plot_saturation_duplication(
     fig, ax = plt.subplots(figsize=(6, 4))
 
     stats_df = pd.read_csv(filepath, sep="\t", index_col=0)
-    stats_df["total_reads"] = n_reads * stats_df.index
 
-    stats_df["mean_reads_per_barcode"] = (
-        stats_df["total_reads"] / stats_df["cell_barcode_count"]
-    )
-    stats_df["mean_reads_per_barcode"].fillna(0, inplace=True)
-    stats_df["duplication_rate"] = (
-        stats_df["total_frag_count"] - stats_df["total_unique_frag_count"]
-    ) / stats_df["total_frag_count"]
-    stats_df["duplication_rate"] = stats_df["duplication_rate"].fillna(0)
-    # stats_df["duplication_rate"] = (stats_df["total_frag_count"] - stats_df["total_unique_frag_count"]/stats_df["total_frag_count"])
-    # select x/y data fro MM fit from subsampling stats
-    x_data = np.array(stats_df.loc[0:, x_axis]) / 10**3
+    if x_axis == "mean_reads_per_barcode":
+        x_data = np.array(stats_df.loc[0:, x_axis]) / 10**3
+    else:
+        x_data = np.array(stats_df.loc[0:, x_axis])
     y_data = np.array(stats_df.loc[0:, y_axis])
     # fit to MM function
 
@@ -1023,7 +1019,6 @@ def plot_saturation_duplication(
     ax.scatter(x=x_data, y=y_data, c="red", s=10)
 
     # mark curent saturation
-    curr_x_idx = np.where(y_fit >= max(y_data))[0][0]
     curr_x_coef = max(x_data)
     curr_y_coef = max(y_data)
     if plot_current_saturation == True:
@@ -1422,80 +1417,55 @@ def scrape_scstats(metadata_path_dict, selected_cells_path_dict, df_stats):
 
 
 ### Calculate losses
+
 def calculate_losses(df_stats, df_scstats_merged):
-    for user_sample in df_stats.index:
-        df_stats.at[user_sample, "total_nr_frag_in_selected_barcodes"] = (
-            df_scstats_merged.groupby("sample_id")["Total_nr_frag"]
-            .sum()
-            .loc[user_sample]
-        )
-        df_stats.at[user_sample, "total_nr_unique_frag_in_selected_barcodes"] = (
-            df_scstats_merged.groupby("sample_id")["Unique_nr_frag"]
-            .sum()
-            .loc[user_sample]
-        )
-        df_stats.at[
-            user_sample, "total_nr_unique_frag_in_selected_barcodes_in_regions"
-        ] = (
-            df_scstats_merged.groupby("sample_id")["Unique_nr_frag_in_regions"]
-            .sum()
-            .loc[user_sample]
-        )
+    grouped_scstats = df_scstats_merged.groupby("sample_id")
+    total_nr_frag = grouped_scstats["Total_nr_frag"].sum()
+    unique_nr_frag = grouped_scstats["Unique_nr_frag"].sum()
+    unique_nr_frag_regions = grouped_scstats["Unique_nr_frag_in_regions"].sum()
 
-    df_sub = df_stats[
-        [
-            "n_reads",
-            "total_nr_frag_in_selected_barcodes",
-            "total_nr_unique_frag_in_selected_barcodes",
-            "total_nr_unique_frag_in_selected_barcodes_in_regions",
-        ]
+    df_stats["total_nr_frag_in_selected_barcodes"] = df_stats.index.map(total_nr_frag)
+    df_stats["total_nr_unique_frag_in_selected_barcodes"] = df_stats.index.map(
+        unique_nr_frag
+    )
+    df_stats[
+        "total_nr_unique_frag_in_selected_barcodes_in_regions"
+    ] = df_stats.index.map(unique_nr_frag_regions)
+
+    df_stats["with_correct_barcode"] = (
+        df_stats["n_reads"] * df_stats["%_correct_barcodes"] / 100
+    )
+    df_stats["mapped"] = df_stats["with_correct_barcode"] * df_stats["%_mapq30"] / 100
+    
+    numeric_cols = [
+        "total_nr_frag_in_selected_barcodes",
+        "total_nr_unique_frag_in_selected_barcodes",
+        "total_nr_unique_frag_in_selected_barcodes_in_regions",
+        "with_correct_barcode",
+        "mapped",
     ]
-
-    df_sub["with_correct_barcode"] = (
-        df_sub["n_reads"] * df_stats["%_correct_barcodes"] / 100
+    
+    df_stats[numeric_cols] = df_stats[numeric_cols].div(df_stats["n_reads"], axis=0)
+    
+    df_stats["No correct barcode"] = 1 - df_stats["with_correct_barcode"]
+    df_stats["Not mapped properly"] = (
+        df_stats["with_correct_barcode"] - df_stats["mapped"]
     )
-
-    df_sub["mapped"] = df_sub["with_correct_barcode"] * df_stats["%_mapq30"] / 100
-
-    df_sub = df_sub.div(df_sub["n_reads"], axis=0)
-
-    df_sub["No correct barcode"] = df_sub["n_reads"] - df_sub["with_correct_barcode"]
-    df_sub["Not mapped properly"] = df_sub["with_correct_barcode"] - df_sub["mapped"]
-
-    df_sub["Fragments in background noise barcodes"] = (
-        df_sub["mapped"] - df_sub["total_nr_frag_in_selected_barcodes"]
+    df_stats["Fragments in background noise barcodes"] = (
+        df_stats["mapped"] - df_stats["total_nr_frag_in_selected_barcodes"]
     )
-    df_sub["Duplicate fragments in cells"] = (
-        df_sub["total_nr_frag_in_selected_barcodes"]
-        - df_sub["total_nr_unique_frag_in_selected_barcodes"]
+    df_stats["Duplicate fragments in cells"] = (
+        df_stats["total_nr_frag_in_selected_barcodes"]
+        - df_stats["total_nr_unique_frag_in_selected_barcodes"]
     )
-    df_sub["Unique fragments in cells, not in peaks"] = (
-        df_sub["total_nr_unique_frag_in_selected_barcodes"]
-        - df_sub["total_nr_unique_frag_in_selected_barcodes_in_regions"]
+    df_stats["Unique fragments in cells, not in peaks"] = (
+        df_stats["total_nr_unique_frag_in_selected_barcodes"]
+        - df_stats["total_nr_unique_frag_in_selected_barcodes_in_regions"]
     )
-    df_sub["Unique fragments in cells and in peaks"] = df_sub[
+    df_stats["Unique fragments in cells and in peaks"] = df_stats[
         "total_nr_unique_frag_in_selected_barcodes_in_regions"
     ]
-
-    # df_sub.columns = [
-    #     "No correct barcode",
-    #     "Duplicate fragments in cells",
-    #     "Unique fragments in cells, not in peaks",
-    #     "Unique fragments in cells and in peaks",
-    #     "Not mapped properly",
-    #     "Fragments in background noise barcodes",
-    # ]
-
-    df_sub = df_sub[
-        [
-            "No correct barcode",
-            "Not mapped properly",
-            "Fragments in background noise barcodes",
-            "Duplicate fragments in cells",
-            "Unique fragments in cells, not in peaks",
-            "Unique fragments in cells and in peaks",
-        ]
-    ]
+    
     if not "No correct barcode" in df_stats.columns:
         df_stats = pd.concat([df_stats, df_sub], axis=1)
 
@@ -1504,34 +1474,37 @@ def calculate_losses(df_stats, df_scstats_merged):
         sep="\t",
         index_col=0,
     )
-    df_stats_reference["tech"] = df_stats_reference["technology"]
-    df_stats_reference["sample_id"] = df_stats_reference.index
 
-    df_stats_reference["n_cells"] = df_stats_reference["cells"]
-    df_stats_reference["n_reads"] = df_stats_reference["reads"]
+    df_stats_reference = df_stats_reference.assign(
+        tech=df_stats_reference["technology"],
+        sample_id=df_stats_reference.index,
+        n_cells=df_stats_reference["cells"],
+        n_reads=df_stats_reference["reads"],
+    )
+
     df_stats_reference["with_correct_barcode"] = (
         df_stats_reference["n_reads"] * df_stats_reference["%_correct_barcodes"] / 100
     )
     df_stats_reference["mapped"] = (
-        df_stats_reference["with_correct_barcode"]
-        * df_stats_reference["%_mapq30"]
-        / 100
+        df_stats_reference["with_correct_barcode"] * df_stats_reference["%_mapq30"] / 100
     )
     df_stats_reference = df_stats_reference[df_stats.columns]
-    df_stats_reference.index = [x + ".FIXEDCELLS" for x in df_stats_reference.index]
-    df_stats_reference["tech"] = [x.split("_")[1] for x in df_stats_reference.index]
+    df_stats_reference.index = df_stats_reference.index + ".FIXEDCELLS"
+    df_stats_reference["tech"] = df_stats_reference.index.str.split("_").str[1]
 
     df_stats["tech"] = "user_sample"
     df_stats_merged = pd.concat([df_stats_reference, df_stats])
-    rename_dict = {
-        "Fragments in background noise barcodes": "Fragments in noise barcodes",
-        "Unique fragments in cells, not in peaks": "Unique, in cells, not in peaks",
-        "Unique fragments in cells and in peaks": "Unique, in cells, in peaks",
-    }
-    df_stats_merged = df_stats_merged.rename(columns=rename_dict)
+
+    df_stats_merged.rename(
+        columns={
+            "Fragments in background noise barcodes": "Fragments in noise barcodes",
+            "Unique fragments in cells, not in peaks": "Unique, in cells, not in peaks",
+            "Unique fragments in cells and in peaks": "Unique, in cells, in peaks",
+        },
+        inplace=True,
+    )
 
     return df_stats_merged
-
 
 ### barplots
 def plot_all_qc(
@@ -1675,7 +1648,6 @@ def plot_all_qc(
         "user_sample": [sample_alias_dict[x] for x in sample_order],
     }
 
-
     losses_order = [
         "tech",
         "No correct barcode",
@@ -1707,7 +1679,7 @@ def plot_all_qc(
 
 
     ### plot
-    n_samples = len(df_stats_merged["sample_id"].unique())
+    n_samples = len(df_stats_merged.index)
     n_var = len(variables_list)
 
     fig = plt.figure(
@@ -1727,10 +1699,8 @@ def plot_all_qc(
     grid_start = 0
     for tech in tech_order:
         df_tmp = df_stats_merged[df_stats_merged["tech"] == tech]
-        df_tmp = df_tmp.reindex(order_dict[tech], fill_value=0)
         df_tmp = df_tmp[losses_order]
-        df_tmp = df_tmp.loc[order_dict[tech]]
-
+        df_tmp = df_tmp.loc[order_dict[tech]]        
         n_samples_in_tech = len(df_tmp)
         grid_end = grid_start + n_samples_in_tech
         ax = fig.add_subplot(gs[0, grid_start:grid_end])
@@ -1837,6 +1807,251 @@ def plot_all_qc(
     plt.tight_layout()
     plt.savefig(png_output_path, dpi=600, facecolor="white", bbox_inches='tight')
     plt.savefig(svg_output_path, dpi=600, facecolor="white", bbox_inches='tight')
+
+    plt.show()
+    plt.close()
+
+def find_nearest(array, value):
+    array = np.asarray(array)
+    idx = (np.abs(array - value)).argmin()
+    return array[idx]
+
+def get_fit(
+    filepath,
+    sample,
+    n_reads,
+    n_cells,
+    to_downsample,
+    x_axis="mean_reads_per_barcode",
+    y_axis="median_uniq_frag_per_bc",
+    function=MM,
+    maxfev=5000
+):
+    stats_df = pd.read_csv(filepath, sep="\t", index_col=0)
+
+    if x_axis == "mean_reads_per_barcode":
+        x_data = np.array(stats_df.loc[0:, x_axis]) / 10**3
+    else:
+        x_data = np.array(stats_df.loc[0:, x_axis])
+        
+    y_data = np.array(stats_df.loc[0:, y_axis])
+    # fit to MM function
+
+    best_fit_ab, covar = curve_fit(function, x_data, y_data, bounds=(0, +np.inf), maxfev=maxfev)
+
+    # expand fit space
+    x_fit = np.linspace(0, int(np.max(x_data) * 1000), num=100000)
+    y_fit = function(x_fit, *(best_fit_ab))
+
+    # Find read count for percent given depth
+    curr_x_idx = list(x_fit).index(find_nearest(x_fit, to_downsample / 1000))
+    curr_y_coef = y_fit[curr_x_idx]
+
+    return curr_y_coef
+
+
+def plot_losses_downsampled(
+    df_stats_merged,
+    sample_order,
+    sample_alias_dict,
+    tech_order,
+    svg_output_path,
+    png_output_path,
+    individual_barplot_width=0.5,
+    individual_plot_row_height=4,
+    dpi=300,
+    depth=None
+):
+    ### Initialize some objects
+    tech_color_palette = {
+        "10xv2": "#1b9e77",
+        "10xv1": "#d95f02",
+        "10xv11": "#7570b3",
+        "10xv11c": "#7570b3",
+        "10xmultiome": "#e7298a",
+        "mtscatac": "#66a61e",
+        "mtscatacfacs": "#66a61e",
+        "ddseq": "#e6ab02",
+        "s3atac": "#a6761d",
+        "hydrop": "#666666",
+        "user_sample": "#FF0000",
+    }
+
+    var_alias_dict = {
+        "Log_total_nr_frag": "Total Fragments",
+        "Log_unique_nr_frag": "Total Fragments",
+        "Total_nr_frag": "Total Fragments",
+        "Unique_nr_frag": "Unique Fragments",
+        "Dupl_nr_frag": "Duplicate Fragments",
+        "Dupl_rate": "% Duplicate Fragments",
+        "Total_nr_frag_in_regions": "Total Fragments in Regions",
+        "Unique_nr_frag_in_regions": "Unique Fragments\nin Peaks",
+        "Unique_nr_frag_in_regions_k": "Unique Fragments\nin Peaks (x1000)",
+        "FRIP": "Fraction of Unique\nFragments in Peaks",
+        "TSS_enrichment": "TSS\nEnrichment",
+        "sample_id": "Sample",
+        "tech": "Technology",
+        "seurat_cell_type_pred_score": "Seurat score",
+        "Doublet_scores_fragments": "Scrublet score",
+    }
+
+    order_dict = {
+        "10xmultiome": [
+            "SAN_10xmultiome_1.FIXEDCELLS",
+            "SAN_10xmultiome_2.FIXEDCELLS",
+            "CNA_10xmultiome_1.FIXEDCELLS",
+            "CNA_10xmultiome_2.FIXEDCELLS",
+            "VIB_10xmultiome_2.FIXEDCELLS",
+            "VIB_10xmultiome_1.FIXEDCELLS",
+        ],
+        "10xv1": ["VIB_10xv1_1.FIXEDCELLS", "VIB_10xv1_2.FIXEDCELLS"],
+        "10xv11": [
+            "TXG_10xv11_1.FIXEDCELLS",
+            "CNA_10xv11_3.FIXEDCELLS",
+            "CNA_10xv11_2.FIXEDCELLS",
+            "CNA_10xv11_1.FIXEDCELLS",
+            "STA_10xv11_1.FIXEDCELLS",
+            "STA_10xv11_2.FIXEDCELLS",
+        ],
+        "10xv11c": ["CNA_10xv11c_1.FIXEDCELLS", "CNA_10xv11c_2.FIXEDCELLS"],
+        "10xv2": [
+            "VIB_10xv2_2.FIXEDCELLS",
+            "VIB_10xv2_1.FIXEDCELLS",
+            "TXG_10xv2_1.FIXEDCELLS",
+            "TXG_10xv2_2.FIXEDCELLS",
+            "CNA_10xv2_1.FIXEDCELLS",
+            "CNA_10xv2_2.FIXEDCELLS",
+        ],
+        "ddseq": [
+            "HAR_ddseq_1.FIXEDCELLS",
+            "HAR_ddseq_2.FIXEDCELLS",
+            "BIO_ddseq_2.FIXEDCELLS",
+            "BIO_ddseq_4.FIXEDCELLS",
+            "BIO_ddseq_1.FIXEDCELLS",
+            "BIO_ddseq_3.FIXEDCELLS",
+            "UCS_ddseq_2.FIXEDCELLS",
+            "UCS_ddseq_1.FIXEDCELLS",
+        ],
+        "hydrop": [
+            "EPF_hydrop_4.FIXEDCELLS",
+            "EPF_hydrop_3.FIXEDCELLS",
+            "EPF_hydrop_1.FIXEDCELLS",
+            "EPF_hydrop_2.FIXEDCELLS",
+            "VIB_hydrop_2.FIXEDCELLS",
+            "VIB_hydrop_1.FIXEDCELLS",
+            "CNA_hydrop_3.FIXEDCELLS",
+            "CNA_hydrop_1.FIXEDCELLS",
+            "CNA_hydrop_2.FIXEDCELLS",
+        ],
+        "mtscatacfacs": [
+            "BRO_mtscatacfacs_1.FIXEDCELLS",
+            "BRO_mtscatacfacs_2.FIXEDCELLS",
+        ],
+        "mtscatac": [
+            "MDC_mtscatac_1.FIXEDCELLS",
+            "MDC_mtscatac_2.FIXEDCELLS",
+            "CNA_mtscatac_2.FIXEDCELLS",
+            "CNA_mtscatac_1.FIXEDCELLS",
+        ],
+        "s3atac": ["OHS_s3atac_1.FIXEDCELLS", "OHS_s3atac_2.FIXEDCELLS"],
+        "user_sample": [sample_alias_dict[x] for x in sample_order],
+    }
+
+    losses_order_downsampled = [
+        "tech",
+        "No correct barcode",
+        "Not mapped properly",
+        "Fragments in noise barcodes",
+        "Duplicate fragments in cells (downsampled)",
+        "Unique, in cells, not in peaks (downsampled)",
+        "Unique, in cells, in peaks (downsampled)",
+    ]
+
+    losses_order_downsampled = losses_order_downsampled[::-1]
+
+    losses_color_palette = palettable.cartocolors.qualitative.Safe_7.get_mpl_colormap()
+
+    tech_alias_dict = {
+        "10xmultiome": "10x\nMultiome",
+        "10xv1": "10x v1",
+        "10xv11": "10x v1.1",
+        "10xv11c": "10x v1.1\ncontrols",
+        "10xv2": "10x v2",
+        "ddseq": "Bio-Rad\nddSEQ SureCell",
+        "hydrop": "HyDrop",
+        "mtscatac": "mtscATAC-seq",
+        "mtscatacfacs": "*",
+        "s3atac": "s3-ATAC",
+        "user_sample": "User samples",
+    }
+
+    ### plot
+    n_samples = len(df_stats_merged["sample_id"].unique())
+    n_var = 1
+
+    fig = plt.figure(
+        figsize=(
+            individual_barplot_width * (n_samples),
+            individual_plot_row_height * n_var,
+        ),
+        dpi=dpi
+    )
+
+    gs = GridSpec(
+        1,
+        n_samples,
+        figure=fig,
+    )
+
+    ## draw losses at the top
+    grid_start = 0
+    for tech in tech_order:
+        df_tmp = df_stats_merged[df_stats_merged["tech"] == tech]
+        df_tmp.index = [sample_alias_dict[x] for x in df_tmp.index]
+        df_tmp = df_tmp[losses_order_downsampled]
+        df_tmp = df_tmp.loc[order_dict[tech]]
+
+        n_samples_in_tech = len(df_tmp)
+        grid_end = grid_start + n_samples_in_tech
+        ax = fig.add_subplot(gs[0, grid_start:grid_end])
+
+        df_tmp.plot.bar(
+            stacked=True,
+            ax=ax,
+            width=individual_barplot_width,
+            colormap=losses_color_palette,
+        )
+
+        # .set_ylim(ylim_dict[variable])
+        ax.get_legend().remove()
+
+        # only set title on top row
+        ax.set_title(f"User samples at {int(depth/1000)}k RPC", fontsize=18)
+        # only set y label on left col
+        if tech == tech_order[0]:
+            ax.set_ylabel("Fraction of\nReads", fontsize=15)
+        else:
+            ax.set_ylabel(None)
+            ax.set_yticklabels([])
+
+        ax.set(xlabel="")
+        plt.xticks(rotation=45, ha="right")
+
+        # start coordinate of next tech is end coordinate of previous tech
+        grid_start = grid_end
+
+    handles, labels = plt.gca().get_legend_handles_labels()
+    order_index = [5, 4, 3, 2, 1, 0]
+    plt.legend(
+        [handles[idx] for idx in order_index],
+        [labels[idx] for idx in order_index],
+        loc=(1.04, 0),
+    )
+
+    # plt.rcParams["font.weight"] = "bold"
+    plt.tight_layout()
+    plt.savefig(png_output_path, dpi=dpi, facecolor="white", bbox_inches="tight")
+    plt.savefig(svg_output_path, dpi=dpi, facecolor="white", bbox_inches="tight")
 
     plt.show()
     plt.close()
