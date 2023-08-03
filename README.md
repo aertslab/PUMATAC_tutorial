@@ -6,5 +6,5 @@ In notebook `5_qc_diagnosis.ipynb`, you can find a detailed and ready-to-run not
 
 ![image](https://github.com/aertslab/PUMATAC_tutorial/assets/55103921/deb9e44d-cde5-47ef-af40-84fdb1cb6187)
 
-If you use this tool, please cite [our 2023 Nature Biotechnology article]([https://www.nature.com/articles/s41587-023-01881-x).  
-De Rop, F.V., Hulselmans, G., Flerin, C. et al. Systematic benchmarking of single-cell ATAC-sequencing protocols. Nat Biotechnol (2023). https://doi.org/10.1038/s41587-023-01881-x
+If you use this tool, please cite [our 2023 Nature Biotechnology article](https://www.nature.com/articles/s41587-023-01881-x).  
+De Rop, F.V., Hulselmans, G., Flerin, C. et al. Systematic benchmarking of single-cell ATAC-sequencing protocols. Nat Biotechnol (2023).
