@@ -20,6 +20,7 @@ import matplotlib.ticker as mtick
 from matplotlib.gridspec import GridSpec
 import seaborn as sns
 import palettable
+import math
 
 # dictionary of instrument id regex: [platform(s)]
 InstrumentIDs = {
@@ -92,6 +93,7 @@ _upgrade_set5 = set(["HiSeq 1000", "HiSeq 2000"])
 fail_msg = "Cannot determine sequencing platform"
 success_msg_template = "(likelihood: {})"
 null_template = "{}"
+
 
 # do intersection of lists
 def intersect(a, b):
@@ -233,6 +235,7 @@ def sequencer_detection_message(fastq_files):
     message = message.strip(", ")
     return message, sequencers
 
+
 ### make tree view of files
 def list_files(startpath, maxlevel):
     for root, dirs, files in os.walk(startpath, followlinks=True):
@@ -267,6 +270,7 @@ pbm_host_dict = {
     "dm6": "http://www.ensembl.org",
 }
 
+
 def download_genome_annotation(inverse_genome_dict):
     annotation_dict = {}
     for genome in inverse_genome_dict.keys():
@@ -276,8 +280,8 @@ def download_genome_annotation(inverse_genome_dict):
             annotation = pd.read_csv(filename, sep="\t", header=0, index_col=0)
         else:
             dataset = pbm.Dataset(
-                name=pbm_genome_name_dict.get(genome, 'default_value'), 
-                host=pbm_host_dict.get(genome, 'default_value')
+                name=pbm_genome_name_dict.get(genome, "default_value"),
+                host=pbm_host_dict.get(genome, "default_value"),
             )
             annotation = dataset.query(
                 attributes=[
@@ -290,12 +294,22 @@ def download_genome_annotation(inverse_genome_dict):
             )
             filter = annotation["Chromosome/scaffold name"].str.contains("CHR|GL|JH|MT")
             annotation = annotation[~filter]
-            annotation["Chromosome/scaffold name"] = annotation["Chromosome/scaffold name"].str.replace(r"(\b\S)", r"chr\1")
-            annotation["Chromosome/scaffold name"] = "chr" + annotation["Chromosome/scaffold name"]
-            annotation.columns = ["Chromosome", "Start", "Strand", "Gene", "Transcript_type"]
+            annotation["Chromosome/scaffold name"] = annotation[
+                "Chromosome/scaffold name"
+            ].str.replace(r"(\b\S)", r"chr\1")
+            annotation["Chromosome/scaffold name"] = (
+                "chr" + annotation["Chromosome/scaffold name"]
+            )
+            annotation.columns = [
+                "Chromosome",
+                "Start",
+                "Strand",
+                "Gene",
+                "Transcript_type",
+            ]
             annotation = annotation[annotation.Transcript_type == "protein_coding"]
             annotation.to_csv(filename, sep="\t")
-            
+
         annotation_dict[genome] = annotation
     return annotation_dict
 
@@ -360,6 +374,7 @@ def threshold_otsu(array, nbins=100, min_value=100):
 def plot_frag_qc(
     x,
     y,
+    z,
     ax,
     x_thr_min=None,
     x_thr_max=None,
@@ -368,7 +383,6 @@ def plot_frag_qc(
     ylab=None,
     xlab="Number of (unique) fragments in regions",
     cmap="viridis",
-    density_overlay=False,
     s=10,
     marker="+",
     c="#343434",
@@ -381,22 +395,16 @@ def plot_frag_qc(
     assert all(x.index == y.index)
     barcodes = x.index.values
 
-    if density_overlay:
-        x_log = np.log(x + 1)
-        xy = np.vstack([x_log, y])
-        print(xy)
-        z = gaussian_kde(xy)(xy)
-        print(z)
-
-        # now order x and y in the same way that z was ordered, otherwise random z value is assigned to barcode:
-        idx = (
-            z.argsort()
-        )  # order based on z value so that highest value is plotted on top, and not hidden by lower values
-        x, y, z, barcodes = x[idx], y[idx], z[idx], barcodes[idx]
-    else:
-        z = c
-
-    sp = ax.scatter(x, y, c=z, s=s, edgecolors=None, marker=marker, cmap=cmap, **kwargs)
+    sp = ax.scatter(
+        x,
+        y,
+        c=z if z is not None else None,
+        s=s,
+        edgecolors=None,
+        marker=marker,
+        cmap=cmap,
+        **kwargs,
+    )
     if ylim is not None:
         ax.set_ylim(ylim[0], ylim[1])
     if xlim is not None:
@@ -428,70 +436,63 @@ def plot_frag_qc(
 def plot_qc(
     sample,
     sample_alias,
-    min_dict,
-    max_dict,
     metadata_bc_df,
+    bc_passing_filters=[],
+    x_thresh=None,
+    y_thresh=None,
     include_kde=False,
     detailed_title=True,
+    max_dict={},
+    min_dict={},
     s=4,
-    min_x_val=100,
-    min_y_val=1,
 ):
     fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(12, 4), dpi=150)
-
-    # calculate thresholds using a double otsu strategy:
-    # first we calculate an otsu threshold using a minimum of 10 fragments
-    # then, this otsu threshold is used as the minimum for the second iteration
-
-    x_arr = np.log10(metadata_bc_df["Unique_nr_frag_in_regions"])
-    x_threshold_log = threshold_otsu(x_arr, nbins=5000, min_value=np.log10(min_x_val))
-    x_threshold = 10**x_threshold_log
-
-    y_arr = metadata_bc_df["TSS_enrichment"]
-    y_threshold = threshold_otsu(y_arr, nbins=5000, min_value=min_y_val)
-
-    # calculate cells passing filter
-    metadata_bc_df_passing_filters = metadata_bc_df.loc[
-        (metadata_bc_df.Unique_nr_frag_in_regions > x_threshold)
-        & (metadata_bc_df.TSS_enrichment > y_threshold)
-    ]
-    bc_passing_filters = metadata_bc_df_passing_filters.index
+    y_var_list = ["TSS_enrichment", "FRIP", "Dupl_rate"]
+    y_labels = ["TSS Enrichment", "FRIP", "Duplicate rate per cell"]
 
     # plot everything
-    plot_frag_qc(
-        x=metadata_bc_df["Unique_nr_frag_in_regions"],
-        y=metadata_bc_df["TSS_enrichment"],
-        ylab="TSS Enrichment",
-        s=s,
-        x_thr_min=x_threshold,
-        y_thr_min=y_threshold,
-        xlim=[10, max_dict["Unique_nr_frag_in_regions"]],
-        ylim=[0, max_dict["TSS_enrichment"]],
-        density_overlay=include_kde,
-        ax=ax1,
-    )
-    plot_frag_qc(
-        x=metadata_bc_df["Unique_nr_frag_in_regions"],
-        y=metadata_bc_df["FRIP"],
-        x_thr_min=x_threshold,
-        ylab="FRIP",
-        s=s,
-        xlim=[10, max_dict["Unique_nr_frag_in_regions"]],
-        ylim=[0, 1],
-        density_overlay=include_kde,
-        ax=ax2,
-    )
-    plot_frag_qc(
-        x=metadata_bc_df["Unique_nr_frag_in_regions"],
-        y=metadata_bc_df["Dupl_rate"],
-        x_thr_min=x_threshold,
-        ylab="Duplicate rate per cell",
-        s=s,
-        xlim=[10, max_dict["Unique_nr_frag_in_regions"]],
-        ylim=[0, 1],
-        density_overlay=include_kde,
-        ax=ax3,
-    )
+    axes = [ax1, ax2, ax3]
+    for i, (y_var, ax, y_label) in enumerate(zip(y_var_list, axes, y_labels)):
+        z_col_name = f"kde__log_Unique_nr_frag_in_regions__{y_var}"
+        # print(metadata_bc_df.columns)
+        if include_kde:
+            print("plotting with KDE")
+            if not z_col_name in metadata_bc_df.columns:
+                print(f"{z_col_name} is not present, calculating")
+                x_log = np.log(metadata_bc_df["Unique_nr_frag_in_regions"] + 1)
+                xy = np.vstack([x_log, metadata_bc_df[y_var]])
+                # print(xy)
+                z = gaussian_kde(xy)(xy)
+                # print(z)
+
+                # now order x and y in the same way that z was ordered, otherwise random z value is assigned to barcode:
+                idx = (
+                    z.argsort()
+                )  # order based on z value so that highest value is plotted on top, and not hidden by lower values
+                df_sub = pd.DataFrame(index=metadata_bc_df.index[idx])
+                df_sub[z_col_name] = z[idx]
+                metadata_bc_df[z_col_name] = df_sub[z_col_name]
+
+            else:
+                print(f"{z_col_name} is present, not calculating")
+        else:
+            print("plotting without KDE")
+
+        if include_kde:
+            metadata_bc_df = metadata_bc_df.sort_values(by=z_col_name, ascending=True)
+
+        plot_frag_qc(
+            x=metadata_bc_df["Unique_nr_frag_in_regions"],
+            y=metadata_bc_df[y_var],
+            z=metadata_bc_df[z_col_name] if include_kde else None,
+            ylab=y_label,
+            s=s,
+            x_thr_min=x_thresh,
+            y_thr_min=y_thresh,
+            xlim=[10, max_dict["Unique_nr_frag_in_regions"]],
+            ylim=[0, max_dict[y_var]] if y_var == "TSS_enrichment" else [0, 1],
+            ax=ax,
+        )
 
     if detailed_title:
         med_nf = round(
@@ -504,12 +505,14 @@ def plot_qc(
             metadata_bc_df.loc[bc_passing_filters, "TSS_enrichment"].median(), 2
         )
         med_frip = round(metadata_bc_df.loc[bc_passing_filters, "FRIP"].median(), 2)
-        title = f"{sample_alias}: Kept {len(bc_passing_filters)} cells using Otsu filtering. Median Unique Fragments: {med_nf:.0f}. Median TSS Enrichment: {med_tss:.2f}. Median FRIP: {med_frip:.2f}\nUsed a minimum of {x_threshold:.2f} fragments and TSS enrichment of {y_threshold:.2f})"
+        title = f"{sample_alias}: Kept {len(bc_passing_filters)} cells using Otsu filtering. Median Unique Fragments: {med_nf:.0f}. Median TSS Enrichment: {med_tss:.2f}. Median FRIP: {med_frip:.2f}\nUsed a minimum of {x_thresh:.2f} fragments and TSS enrichment of {y_thresh:.2f})"
     else:
         title = sample
 
     fig.suptitle(title, x=0.5, y=0.95, fontsize=10)
-    return bc_passing_filters, fig
+    return fig
+
+
 ### Saturation analysis
 def read_bc_and_counts_from_fragments_file(fragments_bed_filename: str) -> pl.DataFrame:
     """
@@ -567,6 +570,7 @@ def read_bc_and_counts_from_fragments_file(fragments_bed_filename: str) -> pl.Da
     )
 
     return fragments_df
+
 
 sampling_fractions_default = [
     0.0,
@@ -782,11 +786,12 @@ def sub_sample_fragments(
         stats_df["total_frag_count"] - stats_df["total_unique_frag_count"]
     ) / stats_df["total_frag_count"]
     stats_df["duplication_rate"] = stats_df["duplication_rate"].fillna(0)
-        
+
     print(f'Saving statistics in "{stats_tsv_filename}".')
     stats_df.to_csv(stats_tsv_filename, sep="\t")
 
     return stats_df
+
 
 # subsample a fragments file and return the subsampled fragments file
 # subsample a fragments file and return the subsampled fragments file
@@ -830,8 +835,10 @@ def sub_sample_fragments_single(
 
         else:
             return fragments_sampled_df_contracted
-    
+
+
 ### Plot duplication
+
 
 def MM(x, Vmax, Km):
     """
@@ -857,7 +864,6 @@ def plot_saturation_fragments(
     y_axis="median_uniq_frag_per_bc",
     function=MM,
 ):
-
     fig, ax = plt.subplots(figsize=(6, 4))
 
     stats_df = pd.read_csv(filepath, sep="\t", index_col=0)
@@ -865,8 +871,7 @@ def plot_saturation_fragments(
         x_data = np.array(stats_df.loc[0:, x_axis]) / 10**3
     else:
         x_data = np.array(stats_df.loc[0:, x_axis])
-        
-        
+
     y_data = np.array(stats_df.loc[0:, y_axis])
     # fit to MM function
 
@@ -884,7 +889,9 @@ def plot_saturation_fragments(
         y_fit = y_fit[0:x_coef]
 
     # plot model
-    ax.plot(x_fit, function(x_fit, *best_fit_ab), label="fitted", c="black", linewidth=1)
+    ax.plot(
+        x_fit, function(x_fit, *best_fit_ab), label="fitted", c="black", linewidth=1
+    )
     # plot raw data
     ax.scatter(x=x_data, y=y_data, c="red", s=10)
 
@@ -936,9 +943,7 @@ def plot_saturation_fragments(
     # add second axis
     ax2 = ax.twiny()
     ax2.set_xticks(ax.get_xticks())
-    upper_xticklabels = [
-        str(int(x)) for x in ax.get_xticks() * n_cells / 1000
-    ]
+    upper_xticklabels = [str(int(x)) for x in ax.get_xticks() * n_cells / 1000]
     ax2.set_xticklabels(upper_xticklabels)
     ax2.set_xlabel("Total reads (millions)")
     ax2.set_xlim([0, x_max])
@@ -953,12 +958,13 @@ def plot_saturation_fragments(
     title_str = f"{sample}\n{n_cells} cells, {round(n_reads/1000000)}M reads\nCurrently at {int(curr_y_coef)} {y_axis} with {int(curr_x_coef)} kRPC\nFor {int(percentage_toplot*100)}% saturation: {int(x_coef*n_cells/1000)}M reads needed\n"
     ax.set_title(title_str)
 
-    plt.savefig(png_output_path, dpi=300, bbox_inches='tight')
-    plt.savefig(svg_output_path, dpi=300, bbox_inches='tight')
+    plt.savefig(png_output_path, dpi=300, bbox_inches="tight")
+    plt.savefig(svg_output_path, dpi=300, bbox_inches="tight")
     plt.show()
 
     plt.close()
     print(title_str)
+
 
 def MM_duplication(x, Km):
     """
@@ -969,6 +975,7 @@ def MM_duplication(x, Km):
     else:
         y = 1e10
     return y
+
 
 def plot_saturation_duplication(
     filepath,
@@ -1066,9 +1073,7 @@ def plot_saturation_duplication(
     # add second axis
     ax2 = ax.twiny()
     ax2.set_xticks(ax.get_xticks())
-    upper_xticklabels = [
-        str(int(x)) for x in ax.get_xticks() * n_cells / 1000
-    ]
+    upper_xticklabels = [str(int(x)) for x in ax.get_xticks() * n_cells / 1000]
     ax2.set_xticklabels(upper_xticklabels)
     ax2.set_xlabel("Total reads (millions)")
     ax2.set_xlim([0, x_max])
@@ -1081,12 +1086,13 @@ def plot_saturation_duplication(
     title_str = f"{sample}\n{n_cells} cells, {round(n_reads/1000000)}M reads\nCurrently at {int(curr_y_coef*100)}% duplication rate with {int(curr_x_coef)} kRPC\nFor {int(percentage_toplot*100)}% duplication rate, {int(x_coef*n_cells/1000)}M reads needed\n"
     ax.set_title(title_str)
 
-    plt.savefig(png_output_path, dpi=300, bbox_inches='tight')
-    plt.savefig(svg_output_path, dpi=300, bbox_inches='tight')
+    plt.savefig(png_output_path, dpi=300, bbox_inches="tight")
+    plt.savefig(svg_output_path, dpi=300, bbox_inches="tight")
     plt.show()
 
     plt.close()
     print(title_str)
+
 
 ### Parsing data
 def load_file(file_path, delimiter):
@@ -1095,6 +1101,8 @@ def load_file(file_path, delimiter):
     else:
         print(f"{file_path} does not exist!")
         return None
+
+
 def print_verbose_info(data):
     print("-------------------------------------\n")
     for key, value in data.items():
@@ -1158,7 +1166,7 @@ def get_pipeline_stats(stats_dict, verbose):
 
             yield sample, percentage_correct_barcodes, n_reads, percent_mapq30
 
-            
+
 def collect_and_sum_barcode_stats(files):
     print(f"loading barcode stats files: {files}")
     df_total = pd.DataFrame()
@@ -1169,9 +1177,10 @@ def collect_and_sum_barcode_stats(files):
             df_total = df.copy()
         else:
             df_total = pd.concat([df_total, df], axis=1)
-    
-    df_total['total'] = df_total.sum(axis=1)
+
+    df_total["total"] = df_total.sum(axis=1)
     return df_total
+
 
 def collect_and_sum_mapping_stats(files):
     print(f"loading mapping stats files: {files}")
@@ -1183,9 +1192,10 @@ def collect_and_sum_mapping_stats(files):
             df_total = df.copy()
         else:
             df_total = pd.concat([df_total, df], axis=1)
-    
-    df_total['total'] = df_total.sum(axis=1)
+
+    df_total["total"] = df_total.sum(axis=1)
     return df_total
+
 
 def calculate_weighted_avg(file_list, value_col, weight_col):
     """
@@ -1204,15 +1214,23 @@ def calculate_weighted_avg(file_list, value_col, weight_col):
     # calculate weighted average
     return (df_all[value_col] * df_all[weight_col]).sum() / df_all[weight_col].sum()
 
+
 def get_weighted_averages(sample_name, dir="."):
     # Find all files that contain the sample_name in the file name
     files = glob.glob(os.path.join(dir, f"*{sample_name}*.tsv"))
     # Value columns to be averaged
-    value_cols = ["r1_length", "r2_length", "avg_insert_size", "%_mapq30", "avg_map_quality"]
+    value_cols = [
+        "r1_length",
+        "r2_length",
+        "avg_insert_size",
+        "%_mapq30",
+        "avg_map_quality",
+    ]
     weighted_avgs = {}
     for col in value_cols:
         weighted_avgs[col] = calculate_weighted_avg(files, col, "raw total sequences")
     return weighted_avgs
+
 
 def scrape_mapping_stats(fragments_path_dict, pipeline_dict, verbose):
     df_stats = pd.DataFrame(index=pd.Index(fragments_path_dict.keys()))
@@ -1222,29 +1240,38 @@ def scrape_mapping_stats(fragments_path_dict, pipeline_dict, verbose):
             df_stats.loc[sample, "sample_id"] = sample
             df_stats.loc[sample, "n_cells"] = len(df)
         else:
-            print(f"selected_barcodes/{sample}_bc_passing_filters_otsu.txt does not exist!")
+            print(
+                f"selected_barcodes/{sample}_bc_passing_filters_otsu.txt does not exist!"
+            )
 
         if pipeline == "PUMATAC":
             # bc stats
-            files = glob.glob(f"{fragments_path_dict[sample].split('data/fragments/')[0]}data/reports/barcode/{sample}*.corrected.bc_stats.log")
+            files = glob.glob(
+                f"{fragments_path_dict[sample].split('data/fragments/')[0]}data/reports/barcode/{sample}*.corrected.bc_stats.log"
+            )
             df_total = collect_and_sum_barcode_stats(files)
             if df is not None:
                 nreads = df_total.at["nbr_reads:", "total"]
                 try:
-                    nbarcodes_total = df_total.at["nbr_reads_with_bc1_bc2_bc3_correct_or_correctable", "total"]
+                    nbarcodes_total = df_total.at[
+                        "nbr_reads_with_bc1_bc2_bc3_correct_or_correctable", "total"
+                    ]
                 except:
                     nbarcodes_total = df_total.at["total_bc_found", "total"]
-                    
+
                 percentage_correct_barcodes = nbarcodes_total / nreads * 100
-                
+
                 df_stats.loc[sample, "n_reads"] = nreads
-                df_stats.loc[sample, "%_correct_barcodes"] = round(percentage_correct_barcodes, 2)
-                
-                
+                df_stats.loc[sample, "%_correct_barcodes"] = round(
+                    percentage_correct_barcodes, 2
+                )
+
             # mapping stats
-            files = glob.glob(f"{fragments_path_dict[sample].split('data/fragments/')[0]}data/reports/mapping_stats/{sample}*.mapping_stats.tsv")
+            files = glob.glob(
+                f"{fragments_path_dict[sample].split('data/fragments/')[0]}data/reports/mapping_stats/{sample}*.mapping_stats.tsv"
+            )
             df_total = collect_and_sum_mapping_stats(files)
-            if df_total is not None:              
+            if df_total is not None:
                 percent_mapq30 = (
                     df_total.at["Reads mapped with MAPQ>30:", "total"]
                     / df_total.at["raw total sequences:", "total"]
@@ -1256,7 +1283,6 @@ def scrape_mapping_stats(fragments_path_dict, pipeline_dict, verbose):
                 r2_length = df_total.at["maximum last fragment length:", "total"]
 
                 if verbose == True:
-
                     print(f"read 1 length: {int(r1_length)}")
                     print(f"read 2 length: {int(r2_length)}")
                     print(f"average map quality: {round(avg_map_quality, 2)}")
@@ -1268,9 +1294,7 @@ def scrape_mapping_stats(fragments_path_dict, pipeline_dict, verbose):
                 df_stats.loc[sample, "r2_length"] = int(r2_length)
                 df_stats.loc[sample, "avg_insert_size"] = int(avg_insert)
                 df_stats.loc[sample, "%_mapq30"] = round(percent_mapq30, 2)
-                df_stats.loc[sample, "avg_map_quality"] = round(
-                    avg_map_quality, 2
-                )
+                df_stats.loc[sample, "avg_map_quality"] = round(avg_map_quality, 2)
 
         elif pipeline == "cellranger-atac":
             filepath = f"{'/'.join(fragments_path_dict[sample].split('/')[:-2])}/outs/summary.csv"
@@ -1294,7 +1318,7 @@ def scrape_mapping_stats(fragments_path_dict, pipeline_dict, verbose):
 
             else:
                 print(f"{filepath} does not exist!")
-            
+
         elif pipeline == "cellranger-arc":
             filepath = f"{'/'.join(fragments_path_dict[sample].split('/')[:-2])}/outs/summary.csv"
 
@@ -1325,7 +1349,10 @@ def scrape_mapping_stats(fragments_path_dict, pipeline_dict, verbose):
 import pandas as pd
 import pickle
 
+
 def scrape_scstats(metadata_path_dict, selected_cells_path_dict, df_stats):
+    cols_to_ignore = ['kde__log_Unique_nr_frag_in_regions__TSS_enrichment', 'kde__log_Unique_nr_frag_in_regions__FRIP', 'kde__log_Unique_nr_frag_in_regions__Dupl_rate']
+
     df_merged = pd.DataFrame()
     df_scstats_merged = pd.DataFrame()
 
@@ -1346,16 +1373,19 @@ def scrape_scstats(metadata_path_dict, selected_cells_path_dict, df_stats):
         df_median = df_median.assign(
             total_nr_frag_in_selected_barcodes=df["Total_nr_frag"].sum(),
             total_nr_unique_frag_in_selected_barcodes=df["Unique_nr_frag"].sum(),
-            total_nr_unique_frag_in_selected_barcodes_in_regions=df["Unique_nr_frag_in_regions"].sum(),
+            total_nr_unique_frag_in_selected_barcodes_in_regions=df[
+                "Unique_nr_frag_in_regions"
+            ].sum(),
             n_barcodes_merged=len([x for x in df.index if "_" in x.split("__")[0]]),
-            frac_barcodes_merged=len([x for x in df.index if "_" in x.split("__")[0]]) / len(df)
+            frac_barcodes_merged=len([x for x in df.index if "_" in x.split("__")[0]])
+            / len(df),
         )
-        
+
         df_median["sample"] = sample  # Add sample name to df_median
         df_merged = pd.concat([df_merged, df_median])
         df_scstats_merged = pd.concat([df_scstats_merged, df])
 
-    df_merged.set_index('sample', inplace=True)  # Set 'sample' as index
+    df_merged.set_index("sample", inplace=True)  # Set 'sample' as index
 
     # Select subset of columns
     df_merged = df_merged[
@@ -1402,7 +1432,7 @@ def scrape_scstats(metadata_path_dict, selected_cells_path_dict, df_stats):
         x.split("___")[-1].split("_")[1] for x in df_scstats_merged_benchmark.index
     ]
 
-    df_scstats_merged_benchmark = df_scstats_merged_benchmark[df_scstats_merged.columns]
+    df_scstats_merged_benchmark = df_scstats_merged_benchmark[[x for x in df_scstats_merged.columns if x not in cols_to_ignore]]
 
     df_scstats_merged = pd.concat([df_scstats_merged_benchmark, df_scstats_merged])
 
@@ -1414,9 +1444,8 @@ def scrape_scstats(metadata_path_dict, selected_cells_path_dict, df_stats):
     return df_scstats_merged, df_stats
 
 
-
-
 ### Calculate losses
+
 
 def calculate_losses(df_stats, df_scstats_merged):
     grouped_scstats = df_scstats_merged.groupby("sample_id")
@@ -1436,7 +1465,7 @@ def calculate_losses(df_stats, df_scstats_merged):
         df_stats["n_reads"] * df_stats["%_correct_barcodes"] / 100
     )
     df_stats["mapped"] = df_stats["with_correct_barcode"] * df_stats["%_mapq30"] / 100
-    
+
     numeric_cols = [
         "total_nr_frag_in_selected_barcodes",
         "total_nr_unique_frag_in_selected_barcodes",
@@ -1444,9 +1473,9 @@ def calculate_losses(df_stats, df_scstats_merged):
         "with_correct_barcode",
         "mapped",
     ]
-    
+
     df_stats[numeric_cols] = df_stats[numeric_cols].div(df_stats["n_reads"], axis=0)
-    
+
     df_stats["No correct barcode"] = 1 - df_stats["with_correct_barcode"]
     df_stats["Not mapped properly"] = (
         df_stats["with_correct_barcode"] - df_stats["mapped"]
@@ -1465,7 +1494,7 @@ def calculate_losses(df_stats, df_scstats_merged):
     df_stats["Unique fragments in cells and in peaks"] = df_stats[
         "total_nr_unique_frag_in_selected_barcodes_in_regions"
     ]
-    
+
     if not "No correct barcode" in df_stats.columns:
         df_stats = pd.concat([df_stats, df_sub], axis=1)
 
@@ -1486,7 +1515,9 @@ def calculate_losses(df_stats, df_scstats_merged):
         df_stats_reference["n_reads"] * df_stats_reference["%_correct_barcodes"] / 100
     )
     df_stats_reference["mapped"] = (
-        df_stats_reference["with_correct_barcode"] * df_stats_reference["%_mapq30"] / 100
+        df_stats_reference["with_correct_barcode"]
+        * df_stats_reference["%_mapq30"]
+        / 100
     )
     df_stats_reference = df_stats_reference[df_stats.columns]
     df_stats_reference.index = df_stats_reference.index + ".FIXEDCELLS"
@@ -1505,6 +1536,7 @@ def calculate_losses(df_stats, df_scstats_merged):
     )
 
     return df_stats_merged
+
 
 ### barplots
 def plot_all_qc(
@@ -1676,8 +1708,6 @@ def plot_all_qc(
         "user_sample": "User samples",
     }
 
-
-
     ### plot
     n_samples = len(df_stats_merged.index)
     n_var = len(variables_list)
@@ -1700,7 +1730,7 @@ def plot_all_qc(
     for tech in tech_order:
         df_tmp = df_stats_merged[df_stats_merged["tech"] == tech]
         df_tmp = df_tmp[losses_order]
-        df_tmp = df_tmp.loc[order_dict[tech]]        
+        df_tmp = df_tmp.loc[order_dict[tech]]
         n_samples_in_tech = len(df_tmp)
         grid_end = grid_start + n_samples_in_tech
         ax = fig.add_subplot(gs[0, grid_start:grid_end])
@@ -1805,16 +1835,18 @@ def plot_all_qc(
 
     # plt.rcParams["font.weight"] = "bold"
     plt.tight_layout()
-    plt.savefig(png_output_path, dpi=600, facecolor="white", bbox_inches='tight')
-    plt.savefig(svg_output_path, dpi=600, facecolor="white", bbox_inches='tight')
+    plt.savefig(png_output_path, dpi=600, facecolor="white", bbox_inches="tight")
+    plt.savefig(svg_output_path, dpi=600, facecolor="white", bbox_inches="tight")
 
     plt.show()
     plt.close()
+
 
 def find_nearest(array, value):
     array = np.asarray(array)
     idx = (np.abs(array - value)).argmin()
     return array[idx]
+
 
 def get_fit(
     filepath,
@@ -1825,7 +1857,7 @@ def get_fit(
     x_axis="mean_reads_per_barcode",
     y_axis="median_uniq_frag_per_bc",
     function=MM,
-    maxfev=5000
+    maxfev=5000,
 ):
     stats_df = pd.read_csv(filepath, sep="\t", index_col=0)
 
@@ -1833,11 +1865,13 @@ def get_fit(
         x_data = np.array(stats_df.loc[0:, x_axis]) / 10**3
     else:
         x_data = np.array(stats_df.loc[0:, x_axis])
-        
+
     y_data = np.array(stats_df.loc[0:, y_axis])
     # fit to MM function
 
-    best_fit_ab, covar = curve_fit(function, x_data, y_data, bounds=(0, +np.inf), maxfev=maxfev)
+    best_fit_ab, covar = curve_fit(
+        function, x_data, y_data, bounds=(0, +np.inf), maxfev=maxfev
+    )
 
     # expand fit space
     x_fit = np.linspace(0, int(np.max(x_data) * 1000), num=100000)
@@ -1860,7 +1894,7 @@ def plot_losses_downsampled(
     individual_barplot_width=0.5,
     individual_plot_row_height=4,
     dpi=300,
-    depth=None
+    depth=None,
 ):
     ### Initialize some objects
     tech_color_palette = {
@@ -1994,7 +2028,7 @@ def plot_losses_downsampled(
             individual_barplot_width * (n_samples),
             individual_plot_row_height * n_var,
         ),
-        dpi=dpi
+        dpi=dpi,
     )
 
     gs = GridSpec(
@@ -2055,3 +2089,58 @@ def plot_losses_downsampled(
 
     plt.show()
     plt.close()
+
+
+def qc_mega_plot(
+    metadata_bc_pkl_path_dict={},
+    sample_order=[],
+    include_kde=False,
+    x_var=None,
+    y_var=None,
+    x_label=None,
+    y_label=None,
+    x_threshold_dict={},
+    y_threshold_dict={},
+    min_dict={},
+    max_dict={},
+    alias_dict={},
+    n_cols=6,
+    figheight=22,
+    figwidth=18,
+):
+    n_rows = math.ceil(len(sample_order) / n_cols)
+    fig, axes = plt.subplots(
+        n_rows, n_cols, figsize=(figwidth, figheight)
+    )  # , sharex=True, sharey=True)
+    axes = axes.flatten()
+    z_col_name = f"kde__log_{x_var}__{y_var}"
+
+    for sample in sample_order:
+        ax = axes[sample_order.index(sample)]
+        print(f"\tLoading {metadata_bc_pkl_path_dict[sample]}")
+        with open(metadata_bc_pkl_path_dict[sample], "rb") as fh:
+            metadata_bc_df = pickle.load(fh)
+
+        if include_kde:
+            metadata_bc_df = metadata_bc_df.sort_values(by=z_col_name, ascending=True)
+
+        plot_frag_qc(
+            x=metadata_bc_df[x_var],
+            y=metadata_bc_df[y_var],
+            z=metadata_bc_df[z_col_name] if include_kde else None,
+            xlab=x_label,
+            ylab=y_label,
+            s=3,
+            x_thr_min=x_threshold_dict[sample]
+            if x_threshold_dict[sample] is not None
+            else None,
+            y_thr_min=y_threshold_dict[sample]
+            if y_threshold_dict[sample] is not None
+            else None,
+            xlim=[10, max_dict[x_var]],
+            ylim=[0, max_dict[y_var]] if y_var == "TSS_enrichment" else [0, 1],
+            ax=ax,
+        )
+        ax.set_title(alias_dict[sample])
+        sns.despine(ax=ax, top=True, right=True)
+    plt.tight_layout()
