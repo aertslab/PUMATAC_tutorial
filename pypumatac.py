@@ -1232,16 +1232,16 @@ def get_weighted_averages(sample_name, dir="."):
     return weighted_avgs
 
 
-def scrape_mapping_stats(fragments_path_dict, pipeline_dict, verbose):
+def scrape_mapping_stats(fragments_path_dict, selected_barcodes_path_dict, pipeline_dict, verbose):
     df_stats = pd.DataFrame(index=pd.Index(fragments_path_dict.keys()))
     for sample, pipeline in pipeline_dict.items():
-        df = load_file(f"selected_barcodes/{sample}_bc_passing_filters_otsu.txt", "\t")
-        if df is not None:
+        try:
+            df = load_file(selected_barcodes_path_dict[sample], "\t")
             df_stats.loc[sample, "sample_id"] = sample
             df_stats.loc[sample, "n_cells"] = len(df)
-        else:
+        except:
             print(
-                f"selected_barcodes/{sample}_bc_passing_filters_otsu.txt does not exist!"
+                f"{sample} bc_passing_filters_otsu.txt not found!"
             )
 
         if pipeline == "PUMATAC":
@@ -2119,35 +2119,30 @@ def qc_mega_plot(
         fig.delaxes(axes[i])
         
     z_col_name = f"kde__log_{x_var}__{y_var}"
-    
-    if include_kde:
-        print("plotting with KDE")
-        if not z_col_name in metadata_bc_df.columns:
-            print(f"{z_col_name} is not present, calculating")
-            x_log = np.log(metadata_bc_df[x_var] + 1)
-            xy = np.vstack([x_log, metadata_bc_df[y_var]])
-            # print(xy)
-            z = gaussian_kde(xy)(xy)
-            # print(z)
-
-            # now order x and y in the same way that z was ordered, otherwise random z value is assigned to barcode:
-            idx = (
-                z.argsort()
-            )  # order based on z value so that highest value is plotted on top, and not hidden by lower values
-            df_sub = pd.DataFrame(index=metadata_bc_df.index[idx])
-            df_sub[z_col_name] = z[idx]
-            metadata_bc_df[z_col_name] = df_sub[z_col_name]
-
-    else:
-        print("plotting without KDE")
 
     for sample in sample_order:
         ax = axes[sample_order.index(sample)]
         print(f"\tLoading {metadata_bc_pkl_path_dict[sample]}")
         with open(metadata_bc_pkl_path_dict[sample], "rb") as fh:
             metadata_bc_df = pickle.load(fh)
-
+        
         if include_kde:
+            if not z_col_name in metadata_bc_df.columns:
+                print(f"{z_col_name} is not present, calculating")
+                x_log = np.log(metadata_bc_df[x_var] + 1)
+                xy = np.vstack([x_log, metadata_bc_df[y_var]])
+                # print(xy)
+                z = gaussian_kde(xy)(xy)
+                # print(z)
+
+                # now order x and y in the same way that z was ordered, otherwise random z value is assigned to barcode:
+                idx = (
+                    z.argsort()
+                )  # order based on z value so that highest value is plotted on top, and not hidden by lower values
+                df_sub = pd.DataFrame(index=metadata_bc_df.index[idx])
+                df_sub[z_col_name] = z[idx]
+                metadata_bc_df[z_col_name] = df_sub[z_col_name]
+                
             metadata_bc_df = metadata_bc_df.sort_values(by=z_col_name, ascending=True)
 
         plot_frag_qc(
