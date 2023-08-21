@@ -2113,7 +2113,33 @@ def qc_mega_plot(
         n_rows, n_cols, figsize=(figwidth, figheight)
     )  # , sharex=True, sharey=True)
     axes = axes.flatten()
+    n_samples = len(metadata_bc_pkl_path_dict)
+    
+    for i in range(n_samples, n_rows * n_cols):
+        fig.delaxes(axes[i])
+        
     z_col_name = f"kde__log_{x_var}__{y_var}"
+    
+    if include_kde:
+        print("plotting with KDE")
+        if not z_col_name in metadata_bc_df.columns:
+            print(f"{z_col_name} is not present, calculating")
+            x_log = np.log(metadata_bc_df[x_var] + 1)
+            xy = np.vstack([x_log, metadata_bc_df[y_var]])
+            # print(xy)
+            z = gaussian_kde(xy)(xy)
+            # print(z)
+
+            # now order x and y in the same way that z was ordered, otherwise random z value is assigned to barcode:
+            idx = (
+                z.argsort()
+            )  # order based on z value so that highest value is plotted on top, and not hidden by lower values
+            df_sub = pd.DataFrame(index=metadata_bc_df.index[idx])
+            df_sub[z_col_name] = z[idx]
+            metadata_bc_df[z_col_name] = df_sub[z_col_name]
+
+    else:
+        print("plotting without KDE")
 
     for sample in sample_order:
         ax = axes[sample_order.index(sample)]
