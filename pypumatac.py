@@ -602,7 +602,6 @@ def sub_sample_fragments(
     selected_barcodes=[],
     sampling_fractions=sampling_fractions_default,
     stats_tsv_filename="sampling_stats.tsv",
-    whitelist=None,
 ):
     sampling_fractions_length = len(sampling_fractions)
 
@@ -1232,8 +1231,8 @@ def get_weighted_averages(sample_name, dir="."):
     return weighted_avgs
 
 
-def scrape_mapping_stats(fragments_path_dict, selected_barcodes_path_dict, pipeline_dict, verbose):
-    df_stats = pd.DataFrame(index=pd.Index(fragments_path_dict.keys()))
+def scrape_mapping_stats(pumatac_output_dir,cr_output_dir, selected_barcodes_path_dict, pipeline_dict, verbose):
+    df_stats = pd.DataFrame(index=pd.Index(pipeline_dict.keys()))
     for sample, pipeline in pipeline_dict.items():
         try:
             df = load_file(selected_barcodes_path_dict[sample], "\t")
@@ -1247,7 +1246,7 @@ def scrape_mapping_stats(fragments_path_dict, selected_barcodes_path_dict, pipel
         if pipeline == "PUMATAC":
             # bc stats
             files = glob.glob(
-                f"{fragments_path_dict[sample].split('data/fragments/')[0]}data/reports/barcode/{sample}*.corrected.bc_stats.log"
+                f"{pumatac_output_dir}/data/reports/barcode/{sample}*.corrected.bc_stats.log"
             )
             df_total = collect_and_sum_barcode_stats(files)
             if df is not None:
@@ -1268,7 +1267,7 @@ def scrape_mapping_stats(fragments_path_dict, selected_barcodes_path_dict, pipel
 
             # mapping stats
             files = glob.glob(
-                f"{fragments_path_dict[sample].split('data/fragments/')[0]}data/reports/mapping_stats/{sample}*.mapping_stats.tsv"
+                f"{pumatac_output_dir}/data/reports/mapping_stats/{sample}*.mapping_stats.tsv"
             )
             df_total = collect_and_sum_mapping_stats(files)
             if df_total is not None:
@@ -1297,7 +1296,7 @@ def scrape_mapping_stats(fragments_path_dict, selected_barcodes_path_dict, pipel
                 df_stats.loc[sample, "avg_map_quality"] = round(avg_map_quality, 2)
 
         elif pipeline == "cellranger-atac":
-            filepath = f"{'/'.join(fragments_path_dict[sample].split('/')[:-2])}/outs/summary.csv"
+            filepath = f"{cr_output_dir}/{sample}/outs/summary.csv"
             if os.path.exists(filepath):
                 df = pd.read_csv(filepath)
                 percentage_correct_barcodes = df["Valid barcodes"][0] * 100
@@ -1320,7 +1319,7 @@ def scrape_mapping_stats(fragments_path_dict, selected_barcodes_path_dict, pipel
                 print(f"{filepath} does not exist!")
 
         elif pipeline == "cellranger-arc":
-            filepath = f"{'/'.join(fragments_path_dict[sample].split('/')[:-2])}/outs/summary.csv"
+            filepath = f"{cr_output_dir}/{sample}/outs/summary.csv"
 
             if os.path.exists(filepath):
                 df = pd.read_csv(filepath)
@@ -1344,7 +1343,6 @@ def scrape_mapping_stats(fragments_path_dict, selected_barcodes_path_dict, pipel
                 print(f"{filepath} does not exist!")
 
     return df_stats
-
 
 import pandas as pd
 import pickle
