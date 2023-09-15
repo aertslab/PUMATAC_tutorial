@@ -793,7 +793,6 @@ def sub_sample_fragments(
 
 
 # subsample a fragments file and return the subsampled fragments file
-# subsample a fragments file and return the subsampled fragments file
 def sub_sample_fragments_single(
     fragments_df,
     sampling_fraction=None,
