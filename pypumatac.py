@@ -1099,7 +1099,7 @@ def plot_saturation_duplication(
 ### Parsing data
 def load_file(file_path, delimiter):
     if os.path.exists(file_path):
-        return pd.read_csv(file_path, sep=delimiter, engine="python", index_col=0)
+        return pd.read_csv(file_path, sep=delimiter, engine="python", index_col=0, header=None)
     else:
         print(f"{file_path} does not exist!")
         return None
