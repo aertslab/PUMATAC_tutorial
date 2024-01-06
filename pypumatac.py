@@ -270,10 +270,14 @@ pbm_host_dict = {
     "dm6": "http://www.ensembl.org",
 }
 
-
 def download_genome_annotation(inverse_genome_dict):
+    standard_set = ["hg38", "hg37", "mm10", "dm6"]
     annotation_dict = {}
     for genome in inverse_genome_dict.keys():
+        if genome not in standard_set:
+            print(f"genome {genome} is not in standard set of {standard_set}. Please download and generate this manually!")
+            continue
+            
         filename = f"{genome}_annotation.tsv"
         if os.path.exists(filename):
             print(f"Loading cached genome annotation {filename}")
@@ -1266,7 +1270,7 @@ def scrape_mapping_stats(pumatac_output_dir,cr_output_dir, selected_barcodes_pat
 
             # mapping stats
             files = glob.glob(
-                f"{pumatac_output_dir}/data/reports/mapping_stats/{sample}*.mapping_stats.tsv"
+                f"{pumatac_output_dir}/data/reports/mapping_stats/{sample}.mapping_stats.tsv"
             )
             df_total = collect_and_sum_mapping_stats(files)
             if df_total is not None:
