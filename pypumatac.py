@@ -440,7 +440,7 @@ def plot_frag_qc(
 def plot_qc(
     sample,
     sample_alias,
-    metadata_bc_df,
+    metadata_bc_pkl_path,
     bc_passing_filters=[],
     x_thresh=None,
     y_thresh=None,
@@ -453,6 +453,9 @@ def plot_qc(
     fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(12, 4), dpi=150)
     y_var_list = ["TSS_enrichment", "FRIP", "Dupl_rate"]
     y_labels = ["TSS Enrichment", "FRIP", "Duplicate rate per cell"]
+
+    with open(metadata_bc_pkl_path, "rb") as fh:
+        metadata_bc_df = pickle.load(fh)
 
     # plot everything
     axes = [ax1, ax2, ax3]
@@ -476,6 +479,9 @@ def plot_qc(
                 df_sub = pd.DataFrame(index=metadata_bc_df.index[idx])
                 df_sub[z_col_name] = z[idx]
                 metadata_bc_df[z_col_name] = df_sub[z_col_name]
+
+                with open(metadata_bc_pkl_path, "wb") as f:
+                    pickle.dump(metadata_bc_df, f, protocol=4)
 
             else:
                 print(f"{z_col_name} is present, not calculating")
@@ -2143,6 +2149,9 @@ def qc_mega_plot(
                 df_sub = pd.DataFrame(index=metadata_bc_df.index[idx])
                 df_sub[z_col_name] = z[idx]
                 metadata_bc_df[z_col_name] = df_sub[z_col_name]
+                
+                with open(metadata_bc_pkl_path_dict[sample], "wb") as f:
+                    pickle.dump(metadata_bc_df, f, protocol=4)
                 
             metadata_bc_df = metadata_bc_df.sort_values(by=z_col_name, ascending=True)
 
