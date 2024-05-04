@@ -505,7 +505,7 @@ def plot_qc(
             metadata_bc_df.loc[bc_passing_filters, "TSS_enrichment"].median(), 2
         )
         med_frip = round(metadata_bc_df.loc[bc_passing_filters, "FRIP"].median(), 2)
-        title = f"{sample_alias}: Kept {len(bc_passing_filters)} cells using Otsu filtering. Median Unique Fragments: {med_nf:.0f}. Median TSS Enrichment: {med_tss:.2f}. Median FRIP: {med_frip:.2f}\nUsed a minimum of {x_thresh:.2f} fragments and TSS enrichment of {y_thresh:.2f})"
+        title = f"{sample_alias}: Kept {len(bc_passing_filters)} cells using Otsu filtering. Median Unique Fragments In Peaks: {med_nf:.0f}. Median TSS Enrichment: {med_tss:.2f}. Median FRIP: {med_frip:.2f}\nUsed a minimum of {x_thresh:.2f} fragments and TSS enrichment of {y_thresh:.2f})"
     else:
         title = sample
 
@@ -1371,7 +1371,7 @@ def scrape_scstats(metadata_path_dict, selected_cells_path_dict, df_stats):
             frac_barcodes_merged = len([x for x in df.index if "_" in x.split("__")[0]])/ len(df)
         except ZeroDivisionError:
             frac_barcodes_merged = 0
-            
+
         df_median = df_median.assign(
             total_nr_frag_in_selected_barcodes=df["Total_nr_frag"].sum(),
             total_nr_unique_frag_in_selected_barcodes=df["Unique_nr_frag"].sum(),
@@ -2116,10 +2116,10 @@ def qc_mega_plot(
     )  # , sharex=True, sharey=True)
     axes = axes.flatten()
     n_samples = len(metadata_bc_pkl_path_dict)
-    
+
     for i in range(n_samples, n_rows * n_cols):
         fig.delaxes(axes[i])
-        
+
     z_col_name = f"kde__log_{x_var}__{y_var}"
 
     for sample in sample_order:
@@ -2127,7 +2127,7 @@ def qc_mega_plot(
         print(f"\tLoading {metadata_bc_pkl_path_dict[sample]}")
         with open(metadata_bc_pkl_path_dict[sample], "rb") as fh:
             metadata_bc_df = pickle.load(fh)
-        
+
         if include_kde:
             if not z_col_name in metadata_bc_df.columns:
                 print(f"{z_col_name} is not present, calculating")
@@ -2144,7 +2144,7 @@ def qc_mega_plot(
                 df_sub = pd.DataFrame(index=metadata_bc_df.index[idx])
                 df_sub[z_col_name] = z[idx]
                 metadata_bc_df[z_col_name] = df_sub[z_col_name]
-                
+
             metadata_bc_df = metadata_bc_df.sort_values(by=z_col_name, ascending=True)
 
         plot_frag_qc(
@@ -2165,7 +2165,7 @@ def qc_mega_plot(
             ax=ax,
         )
         n_cells = n_cells_dict[sample]
-        
+
         ax.set_title(f"{alias_dict[sample]}\n{n_cells} cells")
         sns.despine(ax=ax, top=True, right=True)
     plt.tight_layout()

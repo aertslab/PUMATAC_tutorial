@@ -68,10 +68,12 @@ def main():
         
         metadata_bc_sub = pd.DataFrame(index=barcodes)
         metadata_bc_sub["kde"] = z
-        metadata_bc_df[f"kde__log_{x_var}__{y_var}"] = metadata_bc_sub["kde"]
-        print(f"{x_var}, {y_var} done")
+        print(metadata_bc_sub)
         
+        kde_df[f"kde__log_{x_var}__{y_var}"] = metadata_bc_sub["kde"]
+        print(f"{x_var}, {y_var} done")        
     kde_df.to_csv(out_path, sep='\t', index=True, header=True)
+    
     with open(metadata_pkl_path, "wb") as f:
         pickle.dump(metadata_bc_df, f, protocol=4)
 if __name__ == "__main__":
