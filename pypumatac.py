@@ -270,10 +270,14 @@ pbm_host_dict = {
     "dm6": "http://www.ensembl.org",
 }
 
-
 def download_genome_annotation(inverse_genome_dict):
+    standard_set = ["hg38", "hg37", "mm10", "dm6"]
     annotation_dict = {}
     for genome in inverse_genome_dict.keys():
+        if genome not in standard_set:
+            print(f"genome {genome} is not in standard set of {standard_set}. Please download and generate this manually!")
+            continue
+            
         filename = f"{genome}_annotation.tsv"
         if os.path.exists(filename):
             print(f"Loading cached genome annotation {filename}")
@@ -436,7 +440,7 @@ def plot_frag_qc(
 def plot_qc(
     sample,
     sample_alias,
-    metadata_bc_df,
+    metadata_bc_pkl_path,
     bc_passing_filters=[],
     x_thresh=None,
     y_thresh=None,
@@ -449,6 +453,9 @@ def plot_qc(
     fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(12, 4), dpi=150)
     y_var_list = ["TSS_enrichment", "FRIP", "Dupl_rate"]
     y_labels = ["TSS Enrichment", "FRIP", "Duplicate rate per cell"]
+
+    with open(metadata_bc_pkl_path, "rb") as fh:
+        metadata_bc_df = pickle.load(fh)
 
     # plot everything
     axes = [ax1, ax2, ax3]
@@ -472,6 +479,9 @@ def plot_qc(
                 df_sub = pd.DataFrame(index=metadata_bc_df.index[idx])
                 df_sub[z_col_name] = z[idx]
                 metadata_bc_df[z_col_name] = df_sub[z_col_name]
+
+                with open(metadata_bc_pkl_path, "wb") as f:
+                    pickle.dump(metadata_bc_df, f, protocol=4)
 
             else:
                 print(f"{z_col_name} is present, not calculating")
@@ -505,7 +515,7 @@ def plot_qc(
             metadata_bc_df.loc[bc_passing_filters, "TSS_enrichment"].median(), 2
         )
         med_frip = round(metadata_bc_df.loc[bc_passing_filters, "FRIP"].median(), 2)
-        title = f"{sample_alias}: Kept {len(bc_passing_filters)} cells using Otsu filtering. Median Unique Fragments In Peaks: {med_nf:.0f}. Median TSS Enrichment: {med_tss:.2f}. Median FRIP: {med_frip:.2f}\nUsed a minimum of {x_thresh:.2f} fragments and TSS enrichment of {y_thresh:.2f})"
+        title = f"{sample_alias}: Kept {len(bc_passing_filters)} cells using Otsu filtering. Median Unique Fragments: {med_nf:.0f}. Median TSS Enrichment: {med_tss:.2f}. Median FRIP: {med_frip:.2f}\nUsed a minimum of {x_thresh:.2f} fragments and TSS enrichment of {y_thresh:.2f})"
     else:
         title = sample
 
@@ -1095,7 +1105,7 @@ def plot_saturation_duplication(
 ### Parsing data
 def load_file(file_path, delimiter):
     if os.path.exists(file_path):
-        return pd.read_csv(file_path, sep=delimiter, engine="python", index_col=0)
+        return pd.read_csv(file_path, sep=delimiter, engine="python", index_col=0, header=None)
     else:
         print(f"{file_path} does not exist!")
         return None
@@ -1266,7 +1276,7 @@ def scrape_mapping_stats(pumatac_output_dir,cr_output_dir, selected_barcodes_pat
 
             # mapping stats
             files = glob.glob(
-                f"{pumatac_output_dir}/data/reports/mapping_stats/{sample}*.mapping_stats.tsv"
+                f"{pumatac_output_dir}/data/reports/mapping_stats/{sample}.mapping_stats.tsv"
             )
             df_total = collect_and_sum_mapping_stats(files)
             if df_total is not None:
@@ -1367,11 +1377,6 @@ def scrape_scstats(metadata_path_dict, selected_cells_path_dict, df_stats):
 
         # Add new fields to df_median
         df_median.columns = ["Median_" + x.lower() for x in df_median.columns]
-        try:
-            frac_barcodes_merged = len([x for x in df.index if "_" in x.split("__")[0]])/ len(df)
-        except ZeroDivisionError:
-            frac_barcodes_merged = 0
-
         df_median = df_median.assign(
             total_nr_frag_in_selected_barcodes=df["Total_nr_frag"].sum(),
             total_nr_unique_frag_in_selected_barcodes=df["Unique_nr_frag"].sum(),
@@ -1379,7 +1384,8 @@ def scrape_scstats(metadata_path_dict, selected_cells_path_dict, df_stats):
                 "Unique_nr_frag_in_regions"
             ].sum(),
             n_barcodes_merged=len([x for x in df.index if "_" in x.split("__")[0]]),
-            frac_barcodes_merged=frac_barcodes_merged,
+            frac_barcodes_merged=len([x for x in df.index if "_" in x.split("__")[0]])
+            / len(df),
         )
 
         df_median["sample"] = sample  # Add sample name to df_median
@@ -2095,7 +2101,6 @@ def plot_losses_downsampled(
 def qc_mega_plot(
     metadata_bc_pkl_path_dict={},
     sample_order=[],
-    n_cells_dict = None,
     include_kde=False,
     x_var=None,
     y_var=None,
@@ -2116,10 +2121,10 @@ def qc_mega_plot(
     )  # , sharex=True, sharey=True)
     axes = axes.flatten()
     n_samples = len(metadata_bc_pkl_path_dict)
-
+    
     for i in range(n_samples, n_rows * n_cols):
         fig.delaxes(axes[i])
-
+        
     z_col_name = f"kde__log_{x_var}__{y_var}"
 
     for sample in sample_order:
@@ -2127,7 +2132,7 @@ def qc_mega_plot(
         print(f"\tLoading {metadata_bc_pkl_path_dict[sample]}")
         with open(metadata_bc_pkl_path_dict[sample], "rb") as fh:
             metadata_bc_df = pickle.load(fh)
-
+        
         if include_kde:
             if not z_col_name in metadata_bc_df.columns:
                 print(f"{z_col_name} is not present, calculating")
@@ -2144,7 +2149,10 @@ def qc_mega_plot(
                 df_sub = pd.DataFrame(index=metadata_bc_df.index[idx])
                 df_sub[z_col_name] = z[idx]
                 metadata_bc_df[z_col_name] = df_sub[z_col_name]
-
+                
+                with open(metadata_bc_pkl_path_dict[sample], "wb") as f:
+                    pickle.dump(metadata_bc_df, f, protocol=4)
+                
             metadata_bc_df = metadata_bc_df.sort_values(by=z_col_name, ascending=True)
 
         plot_frag_qc(
@@ -2164,8 +2172,6 @@ def qc_mega_plot(
             ylim=[0, max_dict[y_var]] if y_var == "TSS_enrichment" else [0, 1],
             ax=ax,
         )
-        n_cells = n_cells_dict[sample]
-
-        ax.set_title(f"{alias_dict[sample]}\n{n_cells} cells")
+        ax.set_title(alias_dict[sample])
         sns.despine(ax=ax, top=True, right=True)
     plt.tight_layout()
