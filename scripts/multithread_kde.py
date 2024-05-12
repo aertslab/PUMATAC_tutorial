@@ -70,9 +70,9 @@ def main():
         metadata_bc_sub["kde"] = z
         print(metadata_bc_sub)
         
-        kde_df[f"kde__log_{x_var}__{y_var}"] = metadata_bc_sub["kde"]
+        metadata_bc_df[f"kde__log_{x_var}__{y_var}"] = metadata_bc_sub["kde"]
         print(f"{x_var}, {y_var} done")        
-    kde_df.to_csv(out_path, sep='\t', index=True, header=True)
+    metadata_bc_df.to_csv(out_path, sep='\t', index=True, header=True)
     
     with open(metadata_pkl_path, "wb") as f:
         pickle.dump(metadata_bc_df, f, protocol=4)
