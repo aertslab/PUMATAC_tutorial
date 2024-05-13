@@ -1787,7 +1787,7 @@ def plot_all_qc(
         color = tech_color_palette[tech]
         palette_tmp = {x: color for x in df_scstats_merged["sample_id"].unique()}
 
-        n_samples_in_tech = len(df_tmp["sample_id"].unique())
+        n_samples_in_tech = len(sample_order)
         # print(n_samples_in_tech)
         grid_end = grid_start + n_samples_in_tech
         for variable in variables_list:
@@ -1810,6 +1810,7 @@ def plot_all_qc(
                 bw=0.15,
                 inner="box",
                 linewidth=1,
+                density_norm="width"
             )
 
             if not variable == "Unique_nr_frag_in_regions_k":
@@ -1841,7 +1842,7 @@ def plot_all_qc(
         grid_start = grid_end
 
     # plt.rcParams["font.weight"] = "bold"
-    plt.tight_layout()
+    # plt.tight_layout()
     plt.savefig(png_output_path, dpi=600, facecolor="white", bbox_inches="tight")
     plt.savefig(svg_output_path, dpi=600, facecolor="white", bbox_inches="tight")
 
