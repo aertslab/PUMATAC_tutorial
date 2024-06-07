@@ -41,6 +41,7 @@ InstrumentIDs = {
     "A[0-9]{5}$": ["NovaSeq 6000"],  # added since original was outdated
     "V[0-9]{5}$": ["NextSeq 2000"],  # added since original was outdated
     "VH[0-9]{5}$": ["NextSeq 2000"],  # added since original was outdated
+    "LH[0-9]{5}$": ["NovaSeq X"],  # added since original was outdated
 }
 
 # dictionary of flow cell id regex: ([platform(s)], flow cell version and yeild)
@@ -79,6 +80,7 @@ FCIDs = {
     "D[A-Z,0-9]{4}$": (["MiSeq"], "MiSeq nano flow cell"),
     "G[A-Z,0-9]{4}$": (["MiSeq"], "MiSeq micro flow cell"),
     "H[A-Z,0-9]{4}DMXX$": (["NovaSeq"], "S2 flow cell"),
+    "[0-9]{2}H[A-Z]{5}[0-9]$": (["NovaSeq X"], "NovaSeqX flow cell"),
 }
 
 
