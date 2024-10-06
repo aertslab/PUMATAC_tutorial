@@ -41,7 +41,6 @@ InstrumentIDs = {
     "A[0-9]{5}$": ["NovaSeq 6000"],  # added since original was outdated
     "V[0-9]{5}$": ["NextSeq 2000"],  # added since original was outdated
     "VH[0-9]{5}$": ["NextSeq 2000"],  # added since original was outdated
-    "LH[0-9]{5}$": ["NovaSeq X"],  # added since original was outdated
 }
 
 # dictionary of flow cell id regex: ([platform(s)], flow cell version and yeild)
@@ -80,7 +79,6 @@ FCIDs = {
     "D[A-Z,0-9]{4}$": (["MiSeq"], "MiSeq nano flow cell"),
     "G[A-Z,0-9]{4}$": (["MiSeq"], "MiSeq micro flow cell"),
     "H[A-Z,0-9]{4}DMXX$": (["NovaSeq"], "S2 flow cell"),
-    "[0-9]{2}H[A-Z]{5}[0-9]$": (["NovaSeq X"], "NovaSeqX flow cell"),
 }
 
 
@@ -272,14 +270,10 @@ pbm_host_dict = {
     "dm6": "http://www.ensembl.org",
 }
 
+
 def download_genome_annotation(inverse_genome_dict):
-    standard_set = ["hg38", "hg37", "mm10", "dm6"]
     annotation_dict = {}
     for genome in inverse_genome_dict.keys():
-        if genome not in standard_set:
-            print(f"genome {genome} is not in standard set of {standard_set}. Please download and generate this manually!")
-            continue
-            
         filename = f"{genome}_annotation.tsv"
         if os.path.exists(filename):
             print(f"Loading cached genome annotation {filename}")
@@ -442,7 +436,7 @@ def plot_frag_qc(
 def plot_qc(
     sample,
     sample_alias,
-    metadata_bc_pkl_path,
+    metadata_bc_df,
     bc_passing_filters=[],
     x_thresh=None,
     y_thresh=None,
@@ -455,9 +449,6 @@ def plot_qc(
     fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(12, 4), dpi=150)
     y_var_list = ["TSS_enrichment", "FRIP", "Dupl_rate"]
     y_labels = ["TSS Enrichment", "FRIP", "Duplicate rate per cell"]
-
-    with open(metadata_bc_pkl_path, "rb") as fh:
-        metadata_bc_df = pickle.load(fh)
 
     # plot everything
     axes = [ax1, ax2, ax3]
@@ -481,9 +472,6 @@ def plot_qc(
                 df_sub = pd.DataFrame(index=metadata_bc_df.index[idx])
                 df_sub[z_col_name] = z[idx]
                 metadata_bc_df[z_col_name] = df_sub[z_col_name]
-
-                with open(metadata_bc_pkl_path, "wb") as f:
-                    pickle.dump(metadata_bc_df, f, protocol=4)
 
             else:
                 print(f"{z_col_name} is present, not calculating")
@@ -1107,7 +1095,7 @@ def plot_saturation_duplication(
 ### Parsing data
 def load_file(file_path, delimiter):
     if os.path.exists(file_path):
-        return pd.read_csv(file_path, sep=delimiter, engine="python", index_col=0, header=None)
+        return pd.read_csv(file_path, sep=delimiter, engine="python", index_col=0)
     else:
         print(f"{file_path} does not exist!")
         return None
@@ -1278,7 +1266,7 @@ def scrape_mapping_stats(pumatac_output_dir,cr_output_dir, selected_barcodes_pat
 
             # mapping stats
             files = glob.glob(
-                f"{pumatac_output_dir}/data/reports/mapping_stats/{sample}.mapping_stats.tsv"
+                f"{pumatac_output_dir}/data/reports/mapping_stats/{sample}*.mapping_stats.tsv"
             )
             df_total = collect_and_sum_mapping_stats(files)
             if df_total is not None:
@@ -1789,7 +1777,7 @@ def plot_all_qc(
         color = tech_color_palette[tech]
         palette_tmp = {x: color for x in df_scstats_merged["sample_id"].unique()}
 
-        n_samples_in_tech = len(sample_order)
+        n_samples_in_tech = len(df_tmp["sample_id"].unique())
         # print(n_samples_in_tech)
         grid_end = grid_start + n_samples_in_tech
         for variable in variables_list:
@@ -1812,7 +1800,6 @@ def plot_all_qc(
                 bw=0.15,
                 inner="box",
                 linewidth=1,
-                density_norm="width"
             )
 
             if not variable == "Unique_nr_frag_in_regions_k":
@@ -1844,7 +1831,7 @@ def plot_all_qc(
         grid_start = grid_end
 
     # plt.rcParams["font.weight"] = "bold"
-    # plt.tight_layout()
+    plt.tight_layout()
     plt.savefig(png_output_path, dpi=600, facecolor="white", bbox_inches="tight")
     plt.savefig(svg_output_path, dpi=600, facecolor="white", bbox_inches="tight")
 
@@ -2152,9 +2139,6 @@ def qc_mega_plot(
                 df_sub = pd.DataFrame(index=metadata_bc_df.index[idx])
                 df_sub[z_col_name] = z[idx]
                 metadata_bc_df[z_col_name] = df_sub[z_col_name]
-                
-                with open(metadata_bc_pkl_path_dict[sample], "wb") as f:
-                    pickle.dump(metadata_bc_df, f, protocol=4)
                 
             metadata_bc_df = metadata_bc_df.sort_values(by=z_col_name, ascending=True)
 
